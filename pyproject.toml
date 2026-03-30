@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "vision-analysis-benchmark"
+version = "2.0.0"
+description = "Benchmarking suite for object detection models — powers visionanalysis.org"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "Xuban Ceccon" }]
+
+dependencies = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "numpy>=1.24",
+    "Pillow>=9.0",
+    "pycocotools>=2.0",
+    "psutil>=5.9",
+    "tqdm>=4.65",
+    "libreyolo>=0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+va-bench = "va_bench.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["va_bench*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
