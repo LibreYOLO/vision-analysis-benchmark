@@ -18,8 +18,12 @@ from pathlib import Path
 def cmd_run(args: argparse.Namespace) -> None:
     """Run benchmarks on one or more models."""
     from .benchmark import benchmark_model
-    from .models import list_models, get_spec
+    from .models import list_models
     from .output import save_result
+
+    if args.format == "onnx" and not args.weights_dir:
+        print("Error: --weights-dir is required when --format onnx")
+        sys.exit(1)
 
     if args.all:
         model_keys = list_models()
@@ -30,15 +34,20 @@ def cmd_run(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     print(f"Will benchmark {len(model_keys)} model(s)")
+    print(f"  Format:   {args.format}")
     print(f"  COCO dir: {args.coco_dir}")
     print(f"  Output:   {args.output_dir}")
     print(f"  Device:   {args.device}")
+    if args.format == "onnx":
+        print(f"  Weights:  {args.weights_dir}")
 
     for key in model_keys:
         try:
             result = benchmark_model(
                 model_key=key,
                 coco_dir=args.coco_dir,
+                fmt=args.format,
+                weights_dir=args.weights_dir,
                 device=args.device,
                 verbose=not args.quiet,
             )
@@ -140,6 +149,14 @@ def main() -> None:
         help="Output directory for result JSONs (default: ./results)",
     )
     run_parser.add_argument("--device", type=str, default="auto", help="Device (default: auto)")
+    run_parser.add_argument(
+        "--format", choices=["pytorch", "onnx"], default="pytorch",
+        help="Backend format (default: pytorch)",
+    )
+    run_parser.add_argument(
+        "--weights-dir", type=str, default=None,
+        help="Directory with user-supplied .onnx weights (required with --format onnx)",
+    )
     run_parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
     run_parser.add_argument("--debug", action="store_true", help="Print full tracebacks on error")
 

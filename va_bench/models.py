@@ -9,7 +9,10 @@ transformer-based models (RF-DETR, RT-DETR).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
+
+SUPPORTED_FORMATS = ("pytorch", "onnx")
 
 
 @dataclass(frozen=True)
@@ -77,7 +80,7 @@ def get_spec(key: str) -> ModelSpec:
 
 
 def load_model(key: str, device: str = "auto"):
-    """Load a LibreYOLO model by registry key.
+    """Load a LibreYOLO PyTorch model by registry key.
 
     Returns the loaded model instance and its spec.
     """
@@ -86,6 +89,52 @@ def load_model(key: str, device: str = "auto"):
     spec = get_spec(key)
     model = LibreYOLO(model_path=spec.weight_file, size=spec.constructor_size, device=device)
     return model, spec
+
+
+def resolve_onnx_weights(spec: ModelSpec, weights_dir: str | Path) -> Path:
+    """Return the path to a user-supplied ONNX file for this spec.
+
+    Looks for ``{weight_file_stem}.onnx`` in ``weights_dir``. Raises
+    ``FileNotFoundError`` if missing — we never auto-export from ``.pt``.
+    """
+    stem = Path(spec.weight_file).stem
+    onnx_path = Path(weights_dir) / f"{stem}.onnx"
+    if not onnx_path.exists():
+        raise FileNotFoundError(
+            f"ONNX weights not found for {spec.key}: expected {onnx_path}. "
+            f"Export with LibreYOLO's .export() and place it in the weights dir."
+        )
+    return onnx_path
+
+
+def load_onnx(key: str, weights_dir: str | Path, device: str = "auto"):
+    """Load a LibreYOLO ONNX backend by registry key.
+
+    Returns the backend instance and its spec.
+    """
+    from libreyolo import LibreYOLO
+
+    spec = get_spec(key)
+    onnx_path = resolve_onnx_weights(spec, weights_dir)
+    backend = LibreYOLO(model_path=str(onnx_path), device=device)
+    return backend, spec
+
+
+def count_onnx_params(onnx_path: str | Path) -> float:
+    """Count parameters in an ONNX model by summing initializer sizes.
+
+    Returns params in millions. Requires the ``onnx`` package.
+    """
+    import numpy as np
+    import onnx
+
+    model_proto = onnx.load(str(onnx_path))
+    total = 0
+    for init in model_proto.graph.initializer:
+        dims = list(init.dims)
+        if dims:
+            total += int(np.prod(dims))
+    return total / 1e6
 
 
 def check_params(model, spec: ModelSpec, tolerance: float = 0.05) -> Optional[str]:

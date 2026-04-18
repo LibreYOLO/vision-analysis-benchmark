@@ -105,7 +105,7 @@ def get_system_memory_gb() -> int:
 
 
 def get_software_info() -> dict[str, str]:
-    """Return Python, PyTorch, and LibreYOLO versions."""
+    """Return Python, PyTorch, LibreYOLO, and (if present) ONNX Runtime versions."""
     import torch
 
     libreyolo_version = "unknown"
@@ -115,10 +115,18 @@ def get_software_info() -> dict[str, str]:
     except ImportError:
         pass
 
+    onnxruntime_version = "not-installed"
+    try:
+        import onnxruntime
+        onnxruntime_version = onnxruntime.__version__
+    except ImportError:
+        pass
+
     return {
         "python": platform.python_version(),
         "torch": torch.__version__,
         "libreyolo": libreyolo_version,
+        "onnxruntime": onnxruntime_version,
     }
 
 

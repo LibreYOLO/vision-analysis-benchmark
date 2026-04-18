@@ -85,6 +85,8 @@ def load_results(results_dir: str | Path) -> list[dict]:
     results_dir = Path(results_dir)
     results = []
     for f in sorted(results_dir.glob("*.json")):
+        if f.name == "va_v1_scores.json":
+            continue
         try:
             with open(f) as fp:
                 data = json.load(fp)

@@ -18,18 +18,19 @@ def assemble_result(
     spec: ModelSpec,
     coco_metrics: dict[str, float],
     total_stats: dict[str, float],
-    preprocess_ms: float,
-    inference_ms: float,
-    postprocess_ms: float,
+    preprocess_ms: float | None,
+    inference_ms: float | None,
+    postprocess_ms: float | None,
     fps_mean: float,
     fps_p50: float,
     num_images: int,
     measured_params_m: float,
-    peak_vram_mb: float,
+    peak_vram_mb: float | None,
     peak_ram_mb: float,
     device_type: str,
     hardware: dict[str, Any],
     software: dict[str, str],
+    fmt: str = "pytorch",
 ) -> dict[str, Any]:
     """Assemble the final result dict matching the website's RawBenchmark schema."""
     gflops = spec.paper_flops_g if spec.paper_flops_g > 0 else 0.0
@@ -96,7 +97,7 @@ def assemble_result(
             "version": software.get("libreyolo", "unknown"),
         },
         "runtime": {
-            "format": "pytorch",
+            "format": fmt,
             "precision": "fp32",
             "device": device_type,
         },
@@ -122,7 +123,11 @@ def save_result(result: dict[str, Any], output_dir: str | Path) -> Path:
     else:
         hw_slug = hw.replace(" ", "_")[:20]
 
-    filename = f"{model_name}_{hw_slug}.json"
+    fmt = result.get("runtime", {}).get("format", "pytorch")
+    if fmt == "pytorch":
+        filename = f"{model_name}_{hw_slug}.json"
+    else:
+        filename = f"{model_name}_{hw_slug}_{fmt}.json"
     filepath = output_dir / filename
 
     with open(filepath, "w") as f:
