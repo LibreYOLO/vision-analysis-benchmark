@@ -47,6 +47,14 @@ COCO_80_TO_91 = [
     85, 86, 87, 88, 89, 90,
 ]
 
+SUPPORTED_LIBREYOLO_COMMIT = "1c70efb05a78d1a6e82f29478283883fc9bf38f9"
+REQUIRED_PYTORCH_MODEL_API = (
+    "_get_input_size",
+    "_preprocess",
+    "_forward",
+    "_postprocess",
+)
+
 
 def benchmark_model(
     model_key: str,
@@ -185,6 +193,43 @@ def _get_rss_mb() -> float:
     return psutil.Process().memory_info().rss / (1024 ** 2)
 
 
+def _assert_supported_pytorch_model_api(model: Any) -> None:
+    """Fail fast when the installed LibreYOLO build is missing harness APIs."""
+    missing = [
+        attr for attr in REQUIRED_PYTORCH_MODEL_API if not callable(getattr(model, attr, None))
+    ]
+    if not missing:
+        return
+
+    raise RuntimeError(
+        "Installed libreyolo is incompatible with vision-analysis-benchmark. "
+        f"Missing model API: {', '.join(missing)}. "
+        f"Expected LibreYOLO commit {SUPPORTED_LIBREYOLO_COMMIT} "
+        "or an equivalent compatible build."
+    )
+
+
+def _assert_onnx_cuda_provider_available() -> None:
+    """Require ONNX Runtime CUDA support for explicit ONNX CUDA runs."""
+    try:
+        import onnxruntime as ort
+    except ImportError as exc:
+        raise RuntimeError(
+            "Requested ONNX CUDA benchmarking, but onnxruntime is not installed. "
+            "Install the GPU runtime or rerun with --device cpu."
+        ) from exc
+
+    providers = ort.get_available_providers()
+    if "CUDAExecutionProvider" in providers:
+        return
+
+    raise RuntimeError(
+        "Requested ONNX CUDA benchmarking, but ONNX Runtime has no CUDAExecutionProvider. "
+        f"Available providers: {providers}. Install a CUDA-enabled onnxruntime build "
+        "that matches the host driver/runtime, or rerun with --device cpu."
+    )
+
+
 # =============================================================================
 # PyTorch path
 # =============================================================================
@@ -207,6 +252,7 @@ def _benchmark_pytorch(
         print(f"{'=' * 70}")
 
     model, _ = load_model(model_key, device=device)
+    _assert_supported_pytorch_model_api(model)
     actual_device = model.device
     imgsz = model._get_input_size()
 
@@ -357,6 +403,9 @@ def _benchmark_onnx(
     spec = get_spec(model_key)
     onnx_path = resolve_onnx_weights(spec, weights_dir)
 
+    if device == "cuda":
+        _assert_onnx_cuda_provider_available()
+
     if verbose:
         print(f"\n{'=' * 70}")
         print(f"Benchmarking: {spec.display_name} ({spec.key}) [ONNX]")
@@ -366,6 +415,11 @@ def _benchmark_onnx(
     backend, _ = load_onnx(model_key, weights_dir, device=device)
     # BaseBackend stores device as a string ("cuda" or "cpu").
     backend_device = backend.device
+    if device == "cuda" and backend_device != "cuda":
+        raise RuntimeError(
+            "Requested ONNX CUDA benchmarking, but LibreYOLO resolved the backend to "
+            f"device={backend_device!r}. Check the ONNX Runtime GPU install and providers."
+        )
     imgsz = backend.imgsz
 
     if verbose:

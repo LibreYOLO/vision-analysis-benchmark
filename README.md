@@ -50,3 +50,18 @@ Notes:
 - This harness supports fewer things than LibreYOLO itself.
 - `va-bench run` is the active path that generates website data.
 - `va-bench score` is dormant and currently assumes paired `RTX 5080` and `Raspberry Pi 5` results.
+
+## NVIDIA Note
+
+For community CUDA runs, use a clean virtualenv and avoid user-site contamination:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+export PIP_USER=0
+export PYTHONNOUSERSITE=1
+```
+
+- Install the pinned LibreYOLO build shown above, not an arbitrary local branch.
+- Match PyTorch CUDA wheels to the host driver/runtime. On CUDA 12.4 hosts, use the `cu124` wheel set if the default install pulls a newer incompatible runtime.
+- For `ONNX Runtime + CUDA`, the harness now expects `CUDAExecutionProvider` to be available and fails fast if the runtime only exposes CPU or non-CUDA providers.

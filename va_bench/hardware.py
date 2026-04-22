@@ -6,9 +6,11 @@ Detects GPU (NVIDIA, Apple Silicon, RPi5), CPU info, RAM, and package versions.
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import subprocess
+from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any
 
@@ -114,7 +116,11 @@ def get_software_info() -> dict[str, str]:
     try:
         import libreyolo
         libreyolo_version = getattr(libreyolo, "__version__", "dev")
-        libreyolo_commit = _resolve_git_commit(getattr(libreyolo, "__file__", None)) or "unknown"
+        libreyolo_commit = (
+            _resolve_git_commit(getattr(libreyolo, "__file__", None))
+            or _resolve_direct_url_commit("libreyolo")
+            or "unknown"
+        )
     except ImportError:
         pass
 
@@ -155,6 +161,33 @@ def _resolve_git_commit(module_file: str | None) -> str | None:
         except (FileNotFoundError, subprocess.CalledProcessError):
             return None
     return None
+
+
+def _resolve_direct_url_commit(distribution_name: str) -> str | None:
+    """Read a VCS commit from pip's PEP 610 direct_url.json metadata."""
+    try:
+        dist = importlib_metadata.distribution(distribution_name)
+    except importlib_metadata.PackageNotFoundError:
+        return None
+
+    try:
+        direct_url_text = dist.read_text("direct_url.json")
+    except FileNotFoundError:
+        return None
+
+    if not direct_url_text:
+        return None
+
+    try:
+        direct_url = json.loads(direct_url_text)
+    except json.JSONDecodeError:
+        return None
+
+    vcs_info = direct_url.get("vcs_info") or {}
+    commit = vcs_info.get("commit_id")
+    if not commit:
+        return None
+    return str(commit)
 
 
 def get_runtime_device_name(device_type: str) -> str:

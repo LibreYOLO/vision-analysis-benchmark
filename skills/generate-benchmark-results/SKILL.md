@@ -27,6 +27,9 @@ Use this skill only in `vision-analysis-benchmark`.
 2. Confirm the requested model/backend pair is supported.
    - For ONNX, require `--weights-dir`.
    - Do not improvise TensorRT, OpenVINO, or other backends from this repo.
+   - On NVIDIA machines, prefer a clean venv with `PIP_USER=0` and `PYTHONNOUSERSITE=1`.
+   - Make sure the installed `libreyolo` matches the pinned support commit in `README.md`.
+   - Make sure PyTorch CUDA wheels match the host driver/runtime before starting a long run.
 
 3. Run the harness.
    - Example:
@@ -46,6 +49,7 @@ Use this skill only in `vision-analysis-benchmark`.
 
 - Do not call a benchmark complete if the CLI prints an exception for the model.
 - Do not accept ONNX runs without a real exported `.onnx` file in `--weights-dir`.
+- Do not attempt `onnx + cuda` if ONNX Runtime does not expose `CUDAExecutionProvider`.
 - Do not hand-edit result JSONs unless the user explicitly asks; regenerate them from the harness instead.
 
 ## Reference files
