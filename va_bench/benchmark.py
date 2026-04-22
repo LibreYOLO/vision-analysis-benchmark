@@ -327,8 +327,13 @@ def _benchmark_pytorch(
         peak_vram_mb=round(peak_vram_mb, 1),
         peak_ram_mb=round(peak_ram_mb, 1),
         device_type=get_runtime_device_name(actual_device.type),
+        provider=actual_device.type,
         hardware=hw_sw["hardware"],
         software=hw_sw["software"],
+        actual_input_size=imgsz,
+        conf=conf,
+        iou=iou,
+        max_det=max_det,
         fmt="pytorch",
     )
 
@@ -451,8 +456,13 @@ def _benchmark_onnx(
         peak_vram_mb=None,
         peak_ram_mb=round(peak_ram_mb, 1),
         device_type=device_type,
+        provider=backend_device,
         hardware=hw_sw["hardware"],
         software=hw_sw["software"],
+        actual_input_size=imgsz,
+        conf=conf,
+        iou=iou,
+        max_det=max_det,
         fmt="onnx",
     )
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+from pathlib import Path
 from typing import Any
 
 
@@ -109,9 +110,11 @@ def get_software_info() -> dict[str, str]:
     import torch
 
     libreyolo_version = "unknown"
+    libreyolo_commit = "unknown"
     try:
         import libreyolo
         libreyolo_version = getattr(libreyolo, "__version__", "dev")
+        libreyolo_commit = _resolve_git_commit(getattr(libreyolo, "__file__", None)) or "unknown"
     except ImportError:
         pass
 
@@ -126,8 +129,32 @@ def get_software_info() -> dict[str, str]:
         "python": platform.python_version(),
         "torch": torch.__version__,
         "libreyolo": libreyolo_version,
+        "libreyolo_commit": libreyolo_commit,
         "onnxruntime": onnxruntime_version,
     }
+
+
+def _resolve_git_commit(module_file: str | None) -> str | None:
+    """Best-effort git commit lookup for editable/local installs."""
+    if not module_file:
+        return None
+
+    path = Path(module_file).resolve()
+    for parent in path.parents:
+        if not (parent / ".git").exists():
+            continue
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(parent), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            commit = result.stdout.strip()
+            return commit or None
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return None
+    return None
 
 
 def get_runtime_device_name(device_type: str) -> str:

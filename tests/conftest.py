@@ -18,6 +18,7 @@ def make_result(
     """Build a single benchmark result dict matching the current output schema."""
     return deepcopy({
         "model": {
+            "id": name,
             "name": name,
             "family": "yolox",
             "variant": "s",
@@ -26,6 +27,7 @@ def make_result(
             "input_size": 640,
         },
         "hardware": {
+            "id": "rtx5080" if "5080" in gpu else "rpi5",
             "gpu": gpu,
             "gpu_memory_gb": 16.0,
             "driver_version": "test",
@@ -38,6 +40,7 @@ def make_result(
             "python": "3.14",
             "torch": "2.11",
             "libreyolo": "1.0.0",
+            "libreyolo_commit": "deadbeef",
             "onnxruntime": "not-installed",
         },
         "accuracy": {
@@ -81,8 +84,8 @@ def make_result(
             "peak_ram_mb": 500.0,
         },
         "metadata": {
-            "benchmark_date": "2026-04-18",
-            "benchmark_version": "2.0",
+            "benchmark_date": "2026-04-18T10:15:12Z",
+            "benchmark_version": "2.0.0",
         },
         "eval": {
             "dataset": "coco",
@@ -93,6 +96,28 @@ def make_result(
         "runtime": {
             "format": fmt,
             "precision": "fp32",
-            "device": "gpu",
+            "provider": "cuda" if gpu != "Raspberry Pi 5" else "cpu",
+            "device": "gpu" if gpu != "Raspberry Pi 5" else "cpu",
+        },
+        "schema_version": "va.submission.v1",
+        "submission_id": f"{name}-{fmt}-test",
+        "created_at": "2026-04-18T10:15:12Z",
+        "benchmark": {
+            "harness": "vision-analysis-benchmark",
+            "harness_version": "2.0.0",
+            "libreyolo_version": "1.0.0",
+            "libreyolo_commit": "deadbeef",
+        },
+        "dataset": {
+            "id": "coco2017",
+            "split": "val2017",
+            "num_images": 5000,
+        },
+        "config": {
+            "batch_size": 1,
+            "input_size": 640,
+            "conf": 0.001,
+            "iou": 0.6,
+            "max_det": 300,
         },
     })
