@@ -117,8 +117,8 @@ def get_software_info() -> dict[str, str]:
         import libreyolo
         libreyolo_version = getattr(libreyolo, "__version__", "dev")
         libreyolo_commit = (
-            _resolve_git_commit(getattr(libreyolo, "__file__", None))
-            or _resolve_direct_url_commit("libreyolo")
+            _resolve_direct_url_commit("libreyolo")
+            or _resolve_git_commit(getattr(libreyolo, "__file__", None))
             or "unknown"
         )
     except ImportError:

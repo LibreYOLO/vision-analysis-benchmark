@@ -18,7 +18,7 @@ dependencies = [
     "pycocotools>=2.0",
     "psutil>=5.9",
     "tqdm>=4.65",
-    "libreyolo>=0.1",
+    "libreyolo[rfdetr] @ git+https://github.com/LibreYOLO/libreyolo@7abd8d43bf817d46cae700470d815cb66be2d39d",
 ]
 
 [project.optional-dependencies]
