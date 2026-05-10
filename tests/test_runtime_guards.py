@@ -52,3 +52,21 @@ def test_assert_onnx_cuda_provider_available_accepts_cuda_runtime(monkeypatch):
     monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
 
     benchmark._assert_onnx_cuda_provider_available()
+
+
+def test_benchmark_pytorch_rejects_non_fp32_precision():
+    with pytest.raises(ValueError) as exc:
+        benchmark.benchmark_model(
+            model_key="yolox-s", coco_dir="/nonexistent",
+            fmt="pytorch", precision="fp16",
+        )
+    msg = str(exc.value)
+    assert "PyTorch" in msg and "fp32" in msg
+
+
+def test_benchmark_rejects_unknown_precision():
+    with pytest.raises(ValueError, match="Unsupported precision"):
+        benchmark.benchmark_model(
+            model_key="yolox-s", coco_dir="/nonexistent",
+            fmt="pytorch", precision="bf16",
+        )

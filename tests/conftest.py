@@ -14,6 +14,7 @@ def make_result(
     mean_ms: float,
     gflops: float,
     fmt: str = "pytorch",
+    precision: str = "fp32",
 ) -> dict:
     """Build a single benchmark result dict matching the current output schema."""
     return deepcopy({
@@ -95,7 +96,7 @@ def make_result(
         "implementation": {"provider": "libreyolo", "version": "1.0.0"},
         "runtime": {
             "format": fmt,
-            "precision": "fp32",
+            "precision": precision,
             "provider": "cuda" if gpu != "Raspberry Pi 5" else "cpu",
             "device": "gpu" if gpu != "Raspberry Pi 5" else "cpu",
         },

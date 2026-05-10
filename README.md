@@ -37,6 +37,15 @@ Pinned upstream:
 | `ONNX Runtime` | Apple GPU / MPS | No | No MPS / CoreML / Metal path in this harness. |
 | `ONNX Runtime` | AMD / DirectML / ROCm | No | No provider support in this harness. |
 
+## Precision Support
+
+| Backend | `fp32` | `fp16` | `int8` | Notes |
+|---|---:|---:|---:|---|
+| `PyTorch` | Yes | No | No | LibreYOLO's PyTorch path does not support FP16/INT8 inference. The harness rejects `--precision fp16` / `--precision int8` for `--format pytorch`. |
+| `ONNX Runtime` | Yes | Yes | Yes | Precision is determined by the exported `.onnx` file. Pass `--precision` to label the run; the harness inspects graph initializers and warns if the declared precision disagrees with the file. |
+
+`--precision` is recorded in `runtime.precision`, the `submission_id`, and the result filename so multiple precisions on the same model/hardware do not collide.
+
 ## Out Of Scope Today
 
 | Item | Status |

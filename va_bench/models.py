@@ -120,6 +120,43 @@ def load_onnx(key: str, weights_dir: str | Path, device: str = "auto"):
     return backend, spec
 
 
+_ONNX_DTYPE_TO_PRECISION = {
+    1: "fp32",   # FLOAT
+    10: "fp16",  # FLOAT16
+    16: "fp16",  # BFLOAT16 — reported as fp16 (LibreYOLO export precision label)
+    2: "int8",   # UINT8
+    3: "int8",   # INT8
+    4: "int8",   # UINT16 (rare; treat as int8 bucket only when actually quantized)
+}
+
+
+def detect_onnx_precision(onnx_path: str | Path) -> str:
+    """Infer the dominant weight precision of an ONNX model.
+
+    Returns one of "fp32", "fp16", "int8", or "unknown". The decision is
+    based on the dtype of the largest float/quantized initializers in the
+    graph — a rough but reliable signal for export precision.
+    """
+    import numpy as np
+    import onnx
+
+    model_proto = onnx.load(str(onnx_path))
+    bytes_per_precision: dict[str, int] = {}
+    for init in model_proto.graph.initializer:
+        dims = list(init.dims)
+        if not dims:
+            continue
+        precision = _ONNX_DTYPE_TO_PRECISION.get(int(init.data_type))
+        if precision is None:
+            continue
+        n = int(np.prod(dims))
+        bytes_per_precision[precision] = bytes_per_precision.get(precision, 0) + n
+
+    if not bytes_per_precision:
+        return "unknown"
+    return max(bytes_per_precision.items(), key=lambda kv: kv[1])[0]
+
+
 def count_onnx_params(onnx_path: str | Path) -> float:
     """Count parameters in an ONNX model by summing initializer sizes.
 

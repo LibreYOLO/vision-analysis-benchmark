@@ -80,6 +80,7 @@ def assemble_result(
     iou: float,
     max_det: int,
     fmt: str = "pytorch",
+    precision: str = "fp32",
 ) -> dict[str, Any]:
     """Assemble the final result dict matching the website's RawBenchmark schema."""
     gflops = spec.paper_flops_g if spec.paper_flops_g > 0 else 0.0
@@ -90,7 +91,7 @@ def assemble_result(
 
     return {
         "schema_version": "va.submission.v1",
-        "submission_id": f"{spec.key}-{fmt}-{provider}-{hardware_id}-{now.strftime('%Y%m%dT%H%M%SZ')}",
+        "submission_id": f"{spec.key}-{fmt}-{precision}-{provider}-{hardware_id}-{now.strftime('%Y%m%dT%H%M%SZ')}",
         "created_at": created_at,
         "benchmark": {
             "harness": "vision-analysis-benchmark",
@@ -175,7 +176,7 @@ def assemble_result(
         },
         "runtime": {
             "format": fmt,
-            "precision": "fp32",
+            "precision": precision,
             "provider": provider,
             "device": device_type,
         },
@@ -192,6 +193,7 @@ def save_result(result: dict[str, Any], output_dir: str | Path) -> Path:
 
     model_id = result["model"].get("id") or result["model"]["name"]
     fmt = result.get("runtime", {}).get("format", "pytorch")
+    precision = result.get("runtime", {}).get("precision", "fp32")
     provider = result.get("runtime", {}).get("provider", "unknown")
     hardware_id = result.get("hardware", {}).get("id") or detect_hardware_id(result["hardware"])
     timestamp = result.get("created_at", "")
@@ -200,7 +202,7 @@ def save_result(result: dict[str, Any], output_dir: str | Path) -> Path:
         .replace("+00:00", "Z").replace("T", "T").replace("Z", "Z")
     )
     timestamp_slug = timestamp_slug.rstrip("Z") + "Z" if timestamp_slug else "unknown"
-    filename = f"{model_id}__{fmt}__{provider}__{hardware_id}__{timestamp_slug}.json"
+    filename = f"{model_id}__{fmt}__{precision}__{provider}__{hardware_id}__{timestamp_slug}.json"
     filepath = output_dir / filename
 
     with open(filepath, "w") as f:

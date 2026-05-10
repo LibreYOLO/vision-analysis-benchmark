@@ -35,6 +35,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"  COCO dir: {args.coco_dir}")
     print(f"  Output:   {args.output_dir}")
     print(f"  Device:   {args.device}")
+    print(f"  Precision: {args.precision}")
     if args.format == "onnx":
         print(f"  Weights:  {args.weights_dir}")
 
@@ -49,6 +50,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                 conf=args.conf,
                 iou=args.iou,
                 max_det=args.max_det,
+                precision=args.precision,
                 verbose=not args.quiet,
             )
             filepath = save_result(result, args.output_dir)
@@ -118,6 +120,12 @@ def main() -> None:
     run_parser.add_argument(
         "--iou", type=float, default=0.6,
         help="IoU threshold recorded in the submission (default: 0.6)",
+    )
+    run_parser.add_argument(
+        "--precision", choices=["fp32", "fp16", "int8"], default="fp32",
+        help="Inference precision label recorded in the submission. "
+             "PyTorch backend only supports fp32; for fp16/int8 use --format onnx "
+             "with a weights file exported at that precision (default: fp32).",
     )
     run_parser.add_argument(
         "--max-det", type=int, default=300,

@@ -27,11 +27,14 @@ from .models import (
     ModelSpec,
     check_params,
     count_onnx_params,
+    detect_onnx_precision,
     get_spec,
     load_model,
     load_onnx,
     resolve_onnx_weights,
 )
+
+SUPPORTED_PRECISIONS = ("fp32", "fp16", "int8")
 from .output import assemble_result
 from .timing import SyncTimer, compute_stats, device_sync, warmup
 
@@ -65,6 +68,7 @@ def benchmark_model(
     conf: float = 0.001,
     iou: float = 0.6,
     max_det: int = 300,
+    precision: str = "fp32",
     verbose: bool = True,
 ) -> dict[str, Any]:
     """Benchmark a single model on COCO val2017.
@@ -85,7 +89,18 @@ def benchmark_model(
     Returns:
         Dict matching the RawBenchmark schema for the website.
     """
+    if precision not in SUPPORTED_PRECISIONS:
+        raise ValueError(
+            f"Unsupported precision: {precision!r}. Use one of {SUPPORTED_PRECISIONS}."
+        )
     if fmt == "pytorch":
+        if precision != "fp32":
+            raise ValueError(
+                f"PyTorch backend only supports precision='fp32' (got {precision!r}). "
+                "LibreYOLO's PyTorch path does not support FP16/INT8 inference "
+                "(see libreyolo/cli/commands/predict.py); use --format onnx with a "
+                "weights file exported at the desired precision instead."
+            )
         return _benchmark_pytorch(
             model_key, coco_dir, device, conf, iou, max_det, verbose,
         )
@@ -93,7 +108,7 @@ def benchmark_model(
         if weights_dir is None:
             raise ValueError("weights_dir is required when fmt='onnx'")
         return _benchmark_onnx(
-            model_key, coco_dir, weights_dir, device, conf, iou, max_det, verbose,
+            model_key, coco_dir, weights_dir, device, conf, iou, max_det, precision, verbose,
         )
     raise ValueError(f"Unknown format: {fmt!r}. Use 'pytorch' or 'onnx'.")
 
@@ -381,6 +396,7 @@ def _benchmark_pytorch(
         iou=iou,
         max_det=max_det,
         fmt="pytorch",
+        precision="fp32",
     )
 
 
@@ -396,12 +412,21 @@ def _benchmark_onnx(
     conf: float,
     iou: float,
     max_det: int,
+    precision: str,
     verbose: bool,
 ) -> dict[str, Any]:
     coco_dir = Path(coco_dir)
 
     spec = get_spec(model_key)
     onnx_path = resolve_onnx_weights(spec, weights_dir)
+
+    detected_precision = detect_onnx_precision(onnx_path)
+    if detected_precision != "unknown" and detected_precision != precision:
+        warnings.warn(
+            f"Declared --precision {precision!r} disagrees with ONNX graph "
+            f"precision {detected_precision!r} for {onnx_path.name}. "
+            "Submission will be stamped with the declared value."
+        )
 
     if device == "cuda":
         _assert_onnx_cuda_provider_available()
@@ -518,6 +543,7 @@ def _benchmark_onnx(
         iou=iou,
         max_det=max_det,
         fmt="onnx",
+        precision=precision,
     )
 
 
