@@ -3,7 +3,7 @@
 Produces benchmark JSONs for `visionanalysis.org`.
 
 Pinned upstream:
-`libreyolo @ 1c70efb05a78d1a6e82f29478283883fc9bf38f9`
+`libreyolo[rfdetr] @ v1.1.1` (commit `7abd8d43bf817d46cae700470d815cb66be2d39d` — see `pyproject.toml`)
 
 ## Model / Backend Support
 
