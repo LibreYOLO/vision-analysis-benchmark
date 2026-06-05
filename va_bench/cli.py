@@ -49,6 +49,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                 conf=args.conf,
                 iou=args.iou,
                 max_det=args.max_det,
+                limit=args.limit,
                 verbose=not args.quiet,
             )
             filepath = save_result(result, args.output_dir)
@@ -122,6 +123,11 @@ def main() -> None:
     run_parser.add_argument(
         "--max-det", type=int, default=300,
         help="Maximum detections per image recorded in the submission (default: 300)",
+    )
+    run_parser.add_argument(
+        "--limit", type=int, default=None,
+        help="Evaluate only the first N val2017 images (dev/CPU subset; "
+             "NOT a valid full-val2017 submission). Default: all images.",
     )
     run_parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
     run_parser.add_argument("--debug", action="store_true", help="Print full tracebacks on error")

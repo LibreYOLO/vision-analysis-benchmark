@@ -10,6 +10,10 @@ venv/
 .idea/
 *.swp
 results/
+results_cpu_subset/
+results_full_gpu_rebranding/
+_pr_check/
+_scratch_*.py
 *.csv
 !pyproject.toml
 data/

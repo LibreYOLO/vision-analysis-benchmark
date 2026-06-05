@@ -60,6 +60,94 @@ _register(
     ModelSpec("rfdetr-l", "RF-DETR-L", "rfdetr", "l", "LibreRFDETRl.pt", "l", 704, 128.0, 340.0),
 )
 
+# ---------------------------------------------------------------------------
+# Families added for the full LibreYOLO COCO sweep.
+#
+# input_size / constructor_size mirror each family's LibreYOLO model class
+# (INPUT_SIZES). paper_params_m / paper_flops_g are left 0.0 (= "unknown",
+# disables check_params) until reconciled with the vision-analysis website
+# models.json - we do not fabricate paper specs here. Measured params are
+# still recorded at run time from the loaded model.
+# ---------------------------------------------------------------------------
+_register(
+    # --- YOLOv9 end-to-end (4 variants, NMS-free) ---
+    ModelSpec("yolov9e2e-t", "YOLOv9-E2E-T", "yolov9-e2e", "t", "LibreYOLO9E2Et.pt", "t", 640, 0.0, 0.0),
+    ModelSpec("yolov9e2e-s", "YOLOv9-E2E-S", "yolov9-e2e", "s", "LibreYOLO9E2Es.pt", "s", 640, 0.0, 0.0),
+    ModelSpec("yolov9e2e-m", "YOLOv9-E2E-M", "yolov9-e2e", "m", "LibreYOLO9E2Em.pt", "m", 640, 0.0, 0.0),
+    ModelSpec("yolov9e2e-c", "YOLOv9-E2E-C", "yolov9-e2e", "c", "LibreYOLO9E2Ec.pt", "c", 640, 0.0, 0.0),
+    # --- RT-DETR (7 variants) ---
+    ModelSpec("rtdetr-r18", "RT-DETR-R18", "rtdetr", "r18", "LibreRTDETRr18.pt", "r18", 640, 0.0, 0.0),
+    ModelSpec("rtdetr-r34", "RT-DETR-R34", "rtdetr", "r34", "LibreRTDETRr34.pt", "r34", 640, 0.0, 0.0),
+    ModelSpec("rtdetr-r50", "RT-DETR-R50", "rtdetr", "r50", "LibreRTDETRr50.pt", "r50", 640, 0.0, 0.0),
+    ModelSpec("rtdetr-r50m", "RT-DETR-R50m", "rtdetr", "r50m", "LibreRTDETRr50m.pt", "r50m", 640, 0.0, 0.0),
+    ModelSpec("rtdetr-r101", "RT-DETR-R101", "rtdetr", "r101", "LibreRTDETRr101.pt", "r101", 640, 0.0, 0.0),
+    ModelSpec("rtdetr-l", "RT-DETR-L", "rtdetr", "l", "LibreRTDETRl.pt", "l", 640, 0.0, 0.0),
+    ModelSpec("rtdetr-x", "RT-DETR-X", "rtdetr", "x", "LibreRTDETRx.pt", "x", 640, 0.0, 0.0),
+    # --- DEIM (5 variants) ---
+    ModelSpec("deim-n", "DEIM-N", "deim", "n", "LibreDEIMn.pt", "n", 640, 0.0, 0.0),
+    ModelSpec("deim-s", "DEIM-S", "deim", "s", "LibreDEIMs.pt", "s", 640, 0.0, 0.0),
+    ModelSpec("deim-m", "DEIM-M", "deim", "m", "LibreDEIMm.pt", "m", 640, 0.0, 0.0),
+    ModelSpec("deim-l", "DEIM-L", "deim", "l", "LibreDEIMl.pt", "l", 640, 0.0, 0.0),
+    ModelSpec("deim-x", "DEIM-X", "deim", "x", "LibreDEIMx.pt", "x", 640, 0.0, 0.0),
+    # --- DEIMv2 (8 variants, per-variant input sizes) ---
+    ModelSpec("deimv2-atto", "DEIMv2-Atto", "deimv2", "atto", "LibreDEIMv2atto.pt", "atto", 320, 0.0, 0.0),
+    ModelSpec("deimv2-femto", "DEIMv2-Femto", "deimv2", "femto", "LibreDEIMv2femto.pt", "femto", 416, 0.0, 0.0),
+    ModelSpec("deimv2-pico", "DEIMv2-Pico", "deimv2", "pico", "LibreDEIMv2pico.pt", "pico", 640, 0.0, 0.0),
+    ModelSpec("deimv2-n", "DEIMv2-N", "deimv2", "n", "LibreDEIMv2n.pt", "n", 640, 0.0, 0.0),
+    ModelSpec("deimv2-s", "DEIMv2-S", "deimv2", "s", "LibreDEIMv2s.pt", "s", 640, 0.0, 0.0),
+    ModelSpec("deimv2-m", "DEIMv2-M", "deimv2", "m", "LibreDEIMv2m.pt", "m", 640, 0.0, 0.0),
+    ModelSpec("deimv2-l", "DEIMv2-L", "deimv2", "l", "LibreDEIMv2l.pt", "l", 640, 0.0, 0.0),
+    ModelSpec("deimv2-x", "DEIMv2-X", "deimv2", "x", "LibreDEIMv2x.pt", "x", 640, 0.0, 0.0),
+    # --- D-FINE (5 variants) ---
+    ModelSpec("dfine-n", "D-FINE-N", "dfine", "n", "LibreDFINEn.pt", "n", 640, 0.0, 0.0),
+    ModelSpec("dfine-s", "D-FINE-S", "dfine", "s", "LibreDFINEs.pt", "s", 640, 0.0, 0.0),
+    ModelSpec("dfine-m", "D-FINE-M", "dfine", "m", "LibreDFINEm.pt", "m", 640, 0.0, 0.0),
+    ModelSpec("dfine-l", "D-FINE-L", "dfine", "l", "LibreDFINEl.pt", "l", 640, 0.0, 0.0),
+    ModelSpec("dfine-x", "D-FINE-X", "dfine", "x", "LibreDFINEx.pt", "x", 640, 0.0, 0.0),
+    # --- PicoDet (3 variants, per-variant input sizes) ---
+    ModelSpec("picodet-s", "PicoDet-S", "picodet", "s", "LibrePICODETs.pt", "s", 320, 0.0, 0.0),
+    ModelSpec("picodet-m", "PicoDet-M", "picodet", "m", "LibrePICODETm.pt", "m", 416, 0.0, 0.0),
+    ModelSpec("picodet-l", "PicoDet-L", "picodet", "l", "LibrePICODETl.pt", "l", 640, 0.0, 0.0),
+    # --- EC / EdgeCrafter (4 variants) ---
+    ModelSpec("ec-s", "EC-S", "ec", "s", "LibreECs.pt", "s", 640, 0.0, 0.0),
+    ModelSpec("ec-m", "EC-M", "ec", "m", "LibreECm.pt", "m", 640, 0.0, 0.0),
+    ModelSpec("ec-l", "EC-L", "ec", "l", "LibreECl.pt", "l", 640, 0.0, 0.0),
+    ModelSpec("ec-x", "EC-X", "ec", "x", "LibreECx.pt", "x", 640, 0.0, 0.0),
+)
+
+# ---------------------------------------------------------------------------
+# Families present on libreyolo dev but absent from the earlier branch the
+# registry was first built against. Added for the extended sweep. paper
+# params/flops left 0.0 (unknown) until sourced. Only open, downloadable
+# variants are registered.
+# ---------------------------------------------------------------------------
+_register(
+    # DAMO-YOLO (6 open variants; -l is gated 401)
+    ModelSpec("damoyolo-ns", "DAMO-YOLO-Ns", "damoyolo", "ns", "LibreDAMOYOLOns.pt", "ns", 416, 0.0, 0.0),
+    ModelSpec("damoyolo-nm", "DAMO-YOLO-Nm", "damoyolo", "nm", "LibreDAMOYOLOnm.pt", "nm", 416, 0.0, 0.0),
+    ModelSpec("damoyolo-nl", "DAMO-YOLO-Nl", "damoyolo", "nl", "LibreDAMOYOLOnl.pt", "nl", 416, 0.0, 0.0),
+    ModelSpec("damoyolo-t", "DAMO-YOLO-T", "damoyolo", "t", "LibreDAMOYOLOt.pt", "t", 640, 0.0, 0.0),
+    ModelSpec("damoyolo-s", "DAMO-YOLO-S", "damoyolo", "s", "LibreDAMOYOLOs.pt", "s", 640, 0.0, 0.0),
+    ModelSpec("damoyolo-m", "DAMO-YOLO-M", "damoyolo", "m", "LibreDAMOYOLOm.pt", "m", 640, 0.0, 0.0),
+    # RT-DETRv2 (5)
+    ModelSpec("rtdetrv2-r18", "RT-DETRv2-R18", "rtdetrv2", "r18", "LibreRTDETRv2r18.pt", "r18", 640, 0.0, 0.0),
+    ModelSpec("rtdetrv2-r34", "RT-DETRv2-R34", "rtdetrv2", "r34", "LibreRTDETRv2r34.pt", "r34", 640, 0.0, 0.0),
+    ModelSpec("rtdetrv2-r50", "RT-DETRv2-R50", "rtdetrv2", "r50", "LibreRTDETRv2r50.pt", "r50", 640, 0.0, 0.0),
+    ModelSpec("rtdetrv2-r50m", "RT-DETRv2-R50m", "rtdetrv2", "r50m", "LibreRTDETRv2r50m.pt", "r50m", 640, 0.0, 0.0),
+    ModelSpec("rtdetrv2-r101", "RT-DETRv2-R101", "rtdetrv2", "r101", "LibreRTDETRv2r101.pt", "r101", 640, 0.0, 0.0),
+    # RT-DETRv4 (4)
+    ModelSpec("rtdetrv4-s", "RT-DETRv4-S", "rtdetrv4", "s", "LibreRTDETRv4s.pt", "s", 640, 0.0, 0.0),
+    ModelSpec("rtdetrv4-m", "RT-DETRv4-M", "rtdetrv4", "m", "LibreRTDETRv4m.pt", "m", 640, 0.0, 0.0),
+    ModelSpec("rtdetrv4-l", "RT-DETRv4-L", "rtdetrv4", "l", "LibreRTDETRv4l.pt", "l", 640, 0.0, 0.0),
+    ModelSpec("rtdetrv4-x", "RT-DETRv4-X", "rtdetrv4", "x", "LibreRTDETRv4x.pt", "x", 640, 0.0, 0.0),
+    # RTMDet (5)
+    ModelSpec("rtmdet-t", "RTMDet-T", "rtmdet", "t", "LibreRTMDett.pt", "t", 640, 0.0, 0.0),
+    ModelSpec("rtmdet-s", "RTMDet-S", "rtmdet", "s", "LibreRTMDets.pt", "s", 640, 0.0, 0.0),
+    ModelSpec("rtmdet-m", "RTMDet-M", "rtmdet", "m", "LibreRTMDetm.pt", "m", 640, 0.0, 0.0),
+    ModelSpec("rtmdet-l", "RTMDet-L", "rtmdet", "l", "LibreRTMDetl.pt", "l", 640, 0.0, 0.0),
+    ModelSpec("rtmdet-x", "RTMDet-X", "rtmdet", "x", "LibreRTMDetx.pt", "x", 640, 0.0, 0.0),
+)
+
 
 def list_models() -> list[str]:
     """Return sorted list of all model keys."""

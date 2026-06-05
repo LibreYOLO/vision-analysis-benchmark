@@ -2,27 +2,32 @@
 
 Produces benchmark JSONs for `visionanalysis.org`.
 
-Pinned upstream:
-`libreyolo @ 1c70efb05a78d1a6e82f29478283883fc9bf38f9`
+The harness records the exact LibreYOLO version and commit in each emitted
+result JSON. For public submissions, validate the result JSON rather than
+assuming the local editable install points at the intended branch.
 
 ## Model / Backend Support
 
-| Model Key | Family | PyTorch | ONNX | Notes |
-|---|---|---:|---:|---|
-| `yolox-nano` | YOLOX | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `yolox-tiny` | YOLOX | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `yolox-s` | YOLOX | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `yolox-m` | YOLOX | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `yolox-l` | YOLOX | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `yolox-x` | YOLOX | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `yolov9t` | YOLOv9 | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `yolov9s` | YOLOv9 | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `yolov9m` | YOLOv9 | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `yolov9c` | YOLOv9 | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `rfdetr-n` | RF-DETR | Yes* | Yes | `PyTorch` requires `libreyolo[rfdetr]`. ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `rfdetr-s` | RF-DETR | Yes* | Yes | `PyTorch` requires `libreyolo[rfdetr]`. ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `rfdetr-m` | RF-DETR | Yes* | Yes | `PyTorch` requires `libreyolo[rfdetr]`. ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
-| `rfdetr-l` | RF-DETR | Yes* | Yes | `PyTorch` requires `libreyolo[rfdetr]`. ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
+The registry covers 70 open LibreYOLO detection variants:
+
+| Family | Variants | PyTorch | ONNX | Notes |
+|---|---:|---:|---:|---|
+| YOLOX | 6 | Yes | Yes | ONNX expects a LibreYOLO-exported `.onnx` with embedded metadata. |
+| YOLOv9 | 4 | Yes | Yes | Standard NMS variants. |
+| YOLOv9-E2E | 4 | Yes | Yes | End-to-end variants. |
+| RF-DETR | 4 | Yes* | Yes | `PyTorch` requires optional RF-DETR dependencies. |
+| RT-DETR | 7 | Yes | Yes | Includes ResNet and HGNetv2 variants. |
+| RT-DETRv2 | 5 | Yes | Yes |  |
+| RT-DETRv4 | 4 | Yes | Yes |  |
+| DEIM | 5 | Yes | Yes |  |
+| DEIMv2 | 8 | Yes | Yes |  |
+| D-FINE | 5 | Yes | Yes |  |
+| PicoDet | 3 | Yes | Yes |  |
+| EC / EdgeCrafter | 4 | Yes | Yes |  |
+| DAMO-YOLO | 6 | Yes | Yes | Open variants only. |
+| RTMDet | 5 | Yes | Yes |  |
+
+YOLO-NAS is intentionally excluded because the weights are gated.
 
 ## Runtime / Hardware Support
 
@@ -41,7 +46,6 @@ Pinned upstream:
 
 | Item | Status |
 |---|---:|
-| RT-DETR in this harness | No |
 | TensorRT benchmarking in this harness | No |
 | OpenVINO benchmarking in this harness | No |
 | ncnn benchmarking in this harness | No |

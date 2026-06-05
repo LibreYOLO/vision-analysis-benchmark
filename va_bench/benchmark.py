@@ -47,7 +47,7 @@ COCO_80_TO_91 = [
     85, 86, 87, 88, 89, 90,
 ]
 
-SUPPORTED_LIBREYOLO_COMMIT = "1c70efb05a78d1a6e82f29478283883fc9bf38f9"
+SUPPORTED_LIBREYOLO_COMMIT = "24143e52339d71570ae3207ee60ada202a731200"
 REQUIRED_PYTORCH_MODEL_API = (
     "_get_input_size",
     "_preprocess",
@@ -65,6 +65,7 @@ def benchmark_model(
     conf: float = 0.001,
     iou: float = 0.6,
     max_det: int = 300,
+    limit: int | None = None,
     verbose: bool = True,
 ) -> dict[str, Any]:
     """Benchmark a single model on COCO val2017.
@@ -80,6 +81,8 @@ def benchmark_model(
         conf: Confidence threshold for predictions.
         iou: IoU threshold for NMS.
         max_det: Maximum detections per image.
+        limit: If set, evaluate only the first N val2017 images (dev/CPU
+            subset). A subset run is NOT a valid full-val2017 submission.
         verbose: Print progress.
 
     Returns:
@@ -87,13 +90,13 @@ def benchmark_model(
     """
     if fmt == "pytorch":
         return _benchmark_pytorch(
-            model_key, coco_dir, device, conf, iou, max_det, verbose,
+            model_key, coco_dir, device, conf, iou, max_det, limit, verbose,
         )
     if fmt == "onnx":
         if weights_dir is None:
             raise ValueError("weights_dir is required when fmt='onnx'")
         return _benchmark_onnx(
-            model_key, coco_dir, weights_dir, device, conf, iou, max_det, verbose,
+            model_key, coco_dir, weights_dir, device, conf, iou, max_det, limit, verbose,
         )
     raise ValueError(f"Unknown format: {fmt!r}. Use 'pytorch' or 'onnx'.")
 
@@ -234,6 +237,16 @@ def _assert_onnx_cuda_provider_available() -> None:
 # PyTorch path
 # =============================================================================
 
+def _apply_limit(img_ids: list[int], limit: int | None, verbose: bool) -> list[int]:
+    """Slice img_ids to the first `limit` entries for dev/CPU subset runs."""
+    if limit is None or limit >= len(img_ids):
+        return img_ids
+    if verbose:
+        print(f"  --limit {limit}: evaluating first {limit}/{len(img_ids)} images "
+              f"(SUBSET - not a full-val2017 submission)")
+    return img_ids[:limit]
+
+
 def _benchmark_pytorch(
     model_key: str,
     coco_dir: str | Path,
@@ -241,6 +254,7 @@ def _benchmark_pytorch(
     conf: float,
     iou: float,
     max_det: int,
+    limit: int | None,
     verbose: bool,
 ) -> dict[str, Any]:
     coco_dir = Path(coco_dir)
@@ -270,6 +284,7 @@ def _benchmark_pytorch(
         print(f"  GFLOPs: {spec.paper_flops_g:.2f} (from paper)")
 
     coco_gt, img_ids, img_dir = _load_coco(coco_dir, verbose)
+    img_ids = _apply_limit(img_ids, limit, verbose)
 
     if verbose:
         n_warmup = 10 if actual_device.type in ("cuda", "mps") else 3
@@ -396,6 +411,7 @@ def _benchmark_onnx(
     conf: float,
     iou: float,
     max_det: int,
+    limit: int | None,
     verbose: bool,
 ) -> dict[str, Any]:
     coco_dir = Path(coco_dir)
@@ -432,6 +448,7 @@ def _benchmark_onnx(
         print(f"  GFLOPs: {spec.paper_flops_g:.2f} (from paper)")
 
     coco_gt, img_ids, img_dir = _load_coco(coco_dir, verbose)
+    img_ids = _apply_limit(img_ids, limit, verbose)
 
     n_warmup = 10 if backend_device == "cuda" else 3
     if verbose:

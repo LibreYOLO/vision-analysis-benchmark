@@ -1,0 +1,595 @@
+{
+  "_about": "Paper/official COCO val2017 box mAP@50-95 (fraction 0-1) per LibreYOLO variant. Sourced by per-family research from original papers/repos. paper_map is the value LibreYOLO's measured mAP should match. See 'source' + 'notes' per entry.",
+  "yolox-nano": {
+    "paper_map": 0.258,
+    "paper_params_m": 0.91,
+    "paper_flops_g": 1.32,
+    "source": "https://github.com/Megvii-BaseDetection/YOLOX",
+    "confidence": "high",
+    "notes": "Released-checkpoint mAP (val2017,416). Paper Table4=25.3; repo=25.8 (LibreYOLO ports the released weights)."
+  },
+  "yolox-tiny": {
+    "paper_map": 0.328,
+    "paper_params_m": 5.06,
+    "paper_flops_g": 7.68,
+    "source": "https://github.com/Megvii-BaseDetection/YOLOX",
+    "confidence": "high",
+    "notes": "val2017,416px."
+  },
+  "yolox-s": {
+    "paper_map": 0.405,
+    "paper_params_m": 9.0,
+    "paper_flops_g": 26.8,
+    "source": "https://github.com/Megvii-BaseDetection/YOLOX",
+    "confidence": "high",
+    "notes": "Released-checkpoint 40.5 (paper 39.6). val2017,640."
+  },
+  "yolox-m": {
+    "paper_map": 0.469,
+    "paper_params_m": 25.3,
+    "paper_flops_g": 73.8,
+    "source": "https://github.com/Megvii-BaseDetection/YOLOX",
+    "confidence": "high",
+    "notes": "Released-checkpoint 46.9 (paper 46.4)."
+  },
+  "yolox-l": {
+    "paper_map": 0.497,
+    "paper_params_m": 54.2,
+    "paper_flops_g": 155.6,
+    "source": "https://github.com/Megvii-BaseDetection/YOLOX",
+    "confidence": "high",
+    "notes": "Released-checkpoint 49.7 (paper 50.0)."
+  },
+  "yolox-x": {
+    "paper_map": 0.511,
+    "paper_params_m": 99.1,
+    "paper_flops_g": 281.9,
+    "source": "https://github.com/Megvii-BaseDetection/YOLOX",
+    "confidence": "high",
+    "notes": "Released-checkpoint 51.1 (paper 51.2)."
+  },
+  "yolov9t": {
+    "paper_map": 0.383,
+    "paper_params_m": 2.0,
+    "paper_flops_g": 7.7,
+    "source": "https://arxiv.org/abs/2402.13616",
+    "confidence": "high",
+    "notes": "val2017,640. Repo README perf table."
+  },
+  "yolov9s": {
+    "paper_map": 0.468,
+    "paper_params_m": 7.1,
+    "paper_flops_g": 26.4,
+    "source": "https://arxiv.org/abs/2402.13616",
+    "confidence": "high",
+    "notes": "arXiv Table 1 (val2017), matches repo."
+  },
+  "yolov9m": {
+    "paper_map": 0.514,
+    "paper_params_m": 20.0,
+    "paper_flops_g": 76.3,
+    "source": "https://arxiv.org/abs/2402.13616",
+    "confidence": "high",
+    "notes": "arXiv Table 1 (val2017)."
+  },
+  "yolov9c": {
+    "paper_map": 0.53,
+    "paper_params_m": 25.3,
+    "paper_flops_g": 102.1,
+    "source": "https://arxiv.org/abs/2402.13616",
+    "confidence": "high",
+    "notes": "arXiv Table 1 (val2017)."
+  },
+  "yolov9e2e-t": {
+    "paper_map": 0.383,
+    "paper_params_m": 2.0,
+    "paper_flops_g": 7.7,
+    "source": "https://arxiv.org/abs/2402.13616",
+    "confidence": "low",
+    "notes": "NO separate end-to-end YOLOv9 benchmark published; ref = standard YOLOv9-T (e2e expected approx accuracy-neutral). Verify against measured."
+  },
+  "yolov9e2e-s": {
+    "paper_map": 0.468,
+    "paper_params_m": 7.1,
+    "paper_flops_g": 26.4,
+    "source": "https://arxiv.org/abs/2402.13616",
+    "confidence": "low",
+    "notes": "ref = standard YOLOv9-S; no separate e2e number published."
+  },
+  "yolov9e2e-m": {
+    "paper_map": 0.514,
+    "paper_params_m": 20.0,
+    "paper_flops_g": 76.3,
+    "source": "https://arxiv.org/abs/2402.13616",
+    "confidence": "low",
+    "notes": "ref = standard YOLOv9-M; no separate e2e number published."
+  },
+  "yolov9e2e-c": {
+    "paper_map": 0.53,
+    "paper_params_m": 25.3,
+    "paper_flops_g": 102.1,
+    "source": "https://arxiv.org/abs/2402.13616",
+    "confidence": "low",
+    "notes": "ref = standard YOLOv9-C; no separate e2e number published."
+  },
+  "rfdetr-n": {
+    "paper_map": 0.484,
+    "paper_params_m": 30.5,
+    "paper_flops_g": 31.9,
+    "source": "https://arxiv.org/abs/2511.09554",
+    "confidence": "high",
+    "notes": "RF-DETR Nano (NAS family), 384px, val2017. README 48.4 / paper 48.0."
+  },
+  "rfdetr-s": {
+    "paper_map": 0.53,
+    "paper_params_m": 32.1,
+    "paper_flops_g": 59.8,
+    "source": "https://arxiv.org/abs/2511.09554",
+    "confidence": "high",
+    "notes": "RF-DETR Small, 512px, val2017."
+  },
+  "rfdetr-m": {
+    "paper_map": 0.547,
+    "paper_params_m": 33.7,
+    "paper_flops_g": 78.8,
+    "source": "https://arxiv.org/abs/2511.09554",
+    "confidence": "high",
+    "notes": "RF-DETR Medium, 576px, val2017."
+  },
+  "rfdetr-l": {
+    "paper_map": 0.565,
+    "paper_params_m": 33.9,
+    "paper_flops_g": 125.6,
+    "source": "https://arxiv.org/abs/2511.09554",
+    "confidence": "high",
+    "notes": "RF-DETR Large (NAS family, 704px). Input sizes (384/512/576/704) match LibreYOLO exactly, confirming NAS family not legacy Base."
+  },
+  "rtdetr-r18": {
+    "paper_map": 0.465,
+    "paper_params_m": 20,
+    "paper_flops_g": 60,
+    "source": "https://github.com/lyuwenyu/RT-DETR",
+    "confidence": "high",
+    "notes": "ResNet-18vd, val2017,640."
+  },
+  "rtdetr-r34": {
+    "paper_map": 0.489,
+    "paper_params_m": 31,
+    "paper_flops_g": 92,
+    "source": "https://github.com/lyuwenyu/RT-DETR",
+    "confidence": "high",
+    "notes": "ResNet-34vd, val2017,640."
+  },
+  "rtdetr-r50": {
+    "paper_map": 0.531,
+    "paper_params_m": 42,
+    "paper_flops_g": 136,
+    "source": "https://github.com/lyuwenyu/RT-DETR",
+    "confidence": "high",
+    "notes": "ResNet-50vd, paper abstract confirms 53.1."
+  },
+  "rtdetr-r50m": {
+    "paper_map": 0.513,
+    "paper_params_m": 36,
+    "paper_flops_g": 100,
+    "source": "https://github.com/lyuwenyu/RT-DETR",
+    "confidence": "high",
+    "notes": "Lighter R50 config (R50vd-m / RT-DETRv2-M)."
+  },
+  "rtdetr-r101": {
+    "paper_map": 0.543,
+    "paper_params_m": 76,
+    "paper_flops_g": 259,
+    "source": "https://github.com/lyuwenyu/RT-DETR",
+    "confidence": "high",
+    "notes": "ResNet-101vd, paper abstract confirms 54.3."
+  },
+  "rtdetr-l": {
+    "paper_map": 0.53,
+    "paper_params_m": 32,
+    "paper_flops_g": 110,
+    "source": "https://github.com/lyuwenyu/RT-DETR",
+    "confidence": "high",
+    "notes": "HGNetv2-L (Baidu RT-DETR, Apache-2.0)."
+  },
+  "rtdetr-x": {
+    "paper_map": 0.548,
+    "paper_params_m": 67,
+    "paper_flops_g": 234,
+    "source": "https://github.com/lyuwenyu/RT-DETR",
+    "confidence": "high",
+    "notes": "HGNetv2-X (Baidu RT-DETR, Apache-2.0)."
+  },
+  "deim-n": {
+    "paper_map": 0.43,
+    "paper_params_m": 4,
+    "paper_flops_g": 7,
+    "source": "https://github.com/Intellindust-AI-Lab/DEIM",
+    "confidence": "high",
+    "notes": "DEIM-D-FINE-N, val2017,640."
+  },
+  "deim-s": {
+    "paper_map": 0.49,
+    "paper_params_m": 10,
+    "paper_flops_g": 25,
+    "source": "https://github.com/Intellindust-AI-Lab/DEIM",
+    "confidence": "high",
+    "notes": "DEIM-D-FINE-S."
+  },
+  "deim-m": {
+    "paper_map": 0.527,
+    "paper_params_m": 19,
+    "paper_flops_g": 57,
+    "source": "https://github.com/Intellindust-AI-Lab/DEIM",
+    "confidence": "high",
+    "notes": "DEIM-D-FINE-M."
+  },
+  "deim-l": {
+    "paper_map": 0.547,
+    "paper_params_m": 31,
+    "paper_flops_g": 91,
+    "source": "https://github.com/Intellindust-AI-Lab/DEIM",
+    "confidence": "high",
+    "notes": "DEIM-D-FINE-L, arXiv Table 1."
+  },
+  "deim-x": {
+    "paper_map": 0.565,
+    "paper_params_m": 62,
+    "paper_flops_g": 202,
+    "source": "https://github.com/Intellindust-AI-Lab/DEIM",
+    "confidence": "high",
+    "notes": "DEIM-D-FINE-X, arXiv Table 1."
+  },
+  "deimv2-atto": {
+    "paper_map": 0.238,
+    "paper_params_m": 0.49,
+    "paper_flops_g": 0.76,
+    "source": "https://arxiv.org/abs/2509.20787",
+    "confidence": "high",
+    "notes": "DEIMv2 Atto, 320px, val2017."
+  },
+  "deimv2-femto": {
+    "paper_map": 0.31,
+    "paper_params_m": 0.96,
+    "paper_flops_g": 1.67,
+    "source": "https://arxiv.org/abs/2509.20787",
+    "confidence": "high",
+    "notes": "DEIMv2 Femto, 416px."
+  },
+  "deimv2-pico": {
+    "paper_map": 0.385,
+    "paper_params_m": 1.51,
+    "paper_flops_g": 5.15,
+    "source": "https://arxiv.org/abs/2509.20787",
+    "confidence": "high",
+    "notes": "DEIMv2 Pico, 640px."
+  },
+  "deimv2-n": {
+    "paper_map": 0.43,
+    "paper_params_m": 3.57,
+    "paper_flops_g": 6.86,
+    "source": "https://arxiv.org/abs/2509.20787",
+    "confidence": "high",
+    "notes": "DEIMv2 Nano, 640px."
+  },
+  "deimv2-s": {
+    "paper_map": 0.509,
+    "paper_params_m": 9.71,
+    "paper_flops_g": 25.62,
+    "source": "https://arxiv.org/abs/2509.20787",
+    "confidence": "high",
+    "notes": "DEIMv2 Small."
+  },
+  "deimv2-m": {
+    "paper_map": 0.53,
+    "paper_params_m": 18.11,
+    "paper_flops_g": 52.2,
+    "source": "https://arxiv.org/abs/2509.20787",
+    "confidence": "high",
+    "notes": "DEIMv2 Medium."
+  },
+  "deimv2-l": {
+    "paper_map": 0.56,
+    "paper_params_m": 32.18,
+    "paper_flops_g": 96.32,
+    "source": "https://arxiv.org/abs/2509.20787",
+    "confidence": "high",
+    "notes": "DEIMv2 Large."
+  },
+  "deimv2-x": {
+    "paper_map": 0.578,
+    "paper_params_m": 50.26,
+    "paper_flops_g": 151.6,
+    "source": "https://arxiv.org/abs/2509.20787",
+    "confidence": "high",
+    "notes": "DEIMv2 X-Large."
+  },
+  "dfine-n": {
+    "paper_map": 0.428,
+    "paper_params_m": 4,
+    "paper_flops_g": 7,
+    "source": "https://github.com/Peterande/D-FINE",
+    "confidence": "high",
+    "notes": "Plain COCO val2017 (no O365). Repo-only variant."
+  },
+  "dfine-s": {
+    "paper_map": 0.507,
+    "paper_params_m": 10,
+    "paper_flops_g": 25,
+    "source": "https://github.com/Peterande/D-FINE",
+    "confidence": "high",
+    "notes": "Obj365->COCO checkpoint (dfine_s_obj2coco.pth) = what LibreYOLO ported. Plain-COCO is 48.5."
+  },
+  "dfine-m": {
+    "paper_map": 0.551,
+    "paper_params_m": 19,
+    "paper_flops_g": 57,
+    "source": "https://github.com/Peterande/D-FINE",
+    "confidence": "high",
+    "notes": "Obj365->COCO checkpoint (dfine_m_obj2coco.pth). Plain-COCO is 52.3."
+  },
+  "dfine-l": {
+    "paper_map": 0.573,
+    "paper_params_m": 31,
+    "paper_flops_g": 91,
+    "source": "https://github.com/Peterande/D-FINE",
+    "confidence": "high",
+    "notes": "Obj365->COCO E25 checkpoint (dfine_l_obj2coco_e25.pth). Plain-COCO is 54.0."
+  },
+  "dfine-x": {
+    "paper_map": 0.593,
+    "paper_params_m": 62,
+    "paper_flops_g": 202,
+    "source": "https://github.com/Peterande/D-FINE",
+    "confidence": "high",
+    "notes": "Obj365->COCO checkpoint (dfine_x_obj2coco.pth). Plain-COCO is 55.8."
+  },
+  "picodet-s": {
+    "paper_map": 0.271,
+    "paper_params_m": 0.99,
+    "paper_flops_g": 0.73,
+    "source": "https://arxiv.org/abs/2111.00902",
+    "confidence": "high",
+    "notes": "PP-PicoDet paper S@320. Enhanced 2.6+ retrain=29.1."
+  },
+  "picodet-m": {
+    "paper_map": 0.343,
+    "paper_params_m": 2.15,
+    "paper_flops_g": 2.5,
+    "source": "https://arxiv.org/abs/2111.00902",
+    "confidence": "high",
+    "notes": "PP-PicoDet paper M@416. Enhanced=37.5."
+  },
+  "picodet-l": {
+    "paper_map": 0.409,
+    "paper_params_m": 3.3,
+    "paper_flops_g": 8.91,
+    "source": "https://arxiv.org/abs/2111.00902",
+    "confidence": "high",
+    "notes": "PP-PicoDet paper L@640. Enhanced=42.6."
+  },
+  "ec-s": {
+    "paper_map": 0.517,
+    "paper_params_m": 9.94,
+    "paper_flops_g": 26,
+    "source": "https://arxiv.org/abs/2603.18739",
+    "confidence": "high",
+    "notes": "ECDet-S (EdgeCrafter, Intellindust). val2017,640."
+  },
+  "ec-m": {
+    "paper_map": 0.543,
+    "paper_params_m": 18,
+    "paper_flops_g": 53,
+    "source": "https://arxiv.org/abs/2603.18739",
+    "confidence": "high",
+    "notes": "ECDet-M."
+  },
+  "ec-l": {
+    "paper_map": 0.57,
+    "paper_params_m": 31,
+    "paper_flops_g": 101,
+    "source": "https://arxiv.org/abs/2603.18739",
+    "confidence": "high",
+    "notes": "ECDet-L (HF card)."
+  },
+  "ec-x": {
+    "paper_map": 0.579,
+    "paper_params_m": 49,
+    "paper_flops_g": 151,
+    "source": "https://arxiv.org/abs/2603.18739",
+    "confidence": "high",
+    "notes": "ECDet-X."
+  },
+  "yolonas-s": {
+    "paper_map": 0.475,
+    "paper_params_m": 19.02,
+    "paper_flops_g": 32.8,
+    "source": "https://github.com/Deci-AI/super-gradients",
+    "confidence": "med",
+    "notes": "Gated weights; not in this run."
+  },
+  "yolonas-m": {
+    "paper_map": 0.5155,
+    "paper_params_m": 51.1,
+    "paper_flops_g": 88.9,
+    "source": "https://github.com/Deci-AI/super-gradients",
+    "confidence": "med",
+    "notes": "Gated."
+  },
+  "yolonas-l": {
+    "paper_map": 0.5222,
+    "paper_params_m": 66.97,
+    "paper_flops_g": 116.6,
+    "source": "https://github.com/Deci-AI/super-gradients",
+    "confidence": "med",
+    "notes": "Gated."
+  },
+  "damoyolo-ns": {
+    "paper_map": 0.323,
+    "paper_params_m": 1.41,
+    "paper_flops_g": 1.56,
+    "source": "https://github.com/tinyvision/DAMO-YOLO",
+    "confidence": "high",
+    "notes": "Base ckpt damoyolo_nano_small.pth, 416px. Measured 32.22."
+  },
+  "damoyolo-nm": {
+    "paper_map": 0.382,
+    "paper_params_m": 2.71,
+    "paper_flops_g": 3.69,
+    "source": "https://github.com/tinyvision/DAMO-YOLO",
+    "confidence": "high",
+    "notes": "Base ckpt damoyolo_nano_middle.pth, 416px. Measured 38.08."
+  },
+  "damoyolo-nl": {
+    "paper_map": 0.405,
+    "paper_params_m": 5.69,
+    "paper_flops_g": 6.04,
+    "source": "https://github.com/tinyvision/DAMO-YOLO",
+    "confidence": "high",
+    "notes": "Base ckpt damoyolo_nano_large.pth, 416px. Measured 40.46."
+  },
+  "damoyolo-t": {
+    "paper_map": 0.42,
+    "paper_params_m": 8.5,
+    "paper_flops_g": 18.1,
+    "source": "https://github.com/tinyvision/DAMO-YOLO",
+    "confidence": "high",
+    "notes": "Base T (42.0). Distill T*=43.6."
+  },
+  "damoyolo-s": {
+    "paper_map": 0.46,
+    "paper_params_m": 16.3,
+    "paper_flops_g": 37.8,
+    "source": "https://github.com/tinyvision/DAMO-YOLO",
+    "confidence": "high",
+    "notes": "Base S (46.0). Distill S*=47.7. Measured 45.93."
+  },
+  "damoyolo-m": {
+    "paper_map": 0.502,
+    "paper_params_m": 28.2,
+    "paper_flops_g": 61.8,
+    "source": "https://github.com/tinyvision/DAMO-YOLO",
+    "confidence": "high",
+    "notes": "Distilled M* (50.2). LibreYOLO nn.py:1495 confirms the post-distill release weights (T 42.0, S 46.0, M 50.2) were ported. Measured 49.99 = -0.21."
+  },
+  "damoyolo-l": {
+    "paper_map": 0.508,
+    "paper_params_m": 42.1,
+    "paper_flops_g": 97.3,
+    "source": "https://github.com/tinyvision/DAMO-YOLO",
+    "confidence": "high",
+    "notes": "Gated in run. Base L (50.8). Distill L*=51.9."
+  },
+  "rtdetrv2-r18": {
+    "paper_map": 0.481,
+    "paper_params_m": 20,
+    "paper_flops_g": 60,
+    "source": "https://github.com/lyuwenyu/RT-DETR/blob/main/rtdetrv2_pytorch/README.md",
+    "confidence": "high",
+    "notes": "RT-DETRv2-S (ResNet-18vd)."
+  },
+  "rtdetrv2-r34": {
+    "paper_map": 0.499,
+    "paper_params_m": 31,
+    "paper_flops_g": 92,
+    "source": "https://github.com/lyuwenyu/RT-DETR/blob/main/rtdetrv2_pytorch/README.md",
+    "confidence": "high",
+    "notes": "RT-DETRv2-M* (ResNet-34vd)."
+  },
+  "rtdetrv2-r50m": {
+    "paper_map": 0.519,
+    "paper_params_m": 36,
+    "paper_flops_g": 100,
+    "source": "https://github.com/lyuwenyu/RT-DETR/blob/main/rtdetrv2_pytorch/README.md",
+    "confidence": "high",
+    "notes": "RT-DETRv2-M (lighter R50vd-m). Maps to r50m, not r50."
+  },
+  "rtdetrv2-r50": {
+    "paper_map": 0.534,
+    "paper_params_m": 42,
+    "paper_flops_g": 136,
+    "source": "https://github.com/lyuwenyu/RT-DETR/blob/main/rtdetrv2_pytorch/README.md",
+    "confidence": "high",
+    "notes": "RT-DETRv2-L (full R50vd)."
+  },
+  "rtdetrv2-r101": {
+    "paper_map": 0.543,
+    "paper_params_m": 76,
+    "paper_flops_g": 259,
+    "source": "https://github.com/lyuwenyu/RT-DETR/blob/main/rtdetrv2_pytorch/README.md",
+    "confidence": "high",
+    "notes": "RT-DETRv2-X (ResNet-101vd)."
+  },
+  "rtdetrv4-s": {
+    "paper_map": 0.497,
+    "paper_params_m": 10,
+    "paper_flops_g": 25,
+    "source": "https://arxiv.org/abs/2510.25257",
+    "confidence": "med",
+    "notes": "RT-DETRv4-S (HGNetv2 + DINOv3 distill). Paper 49.7 / repo 49.8."
+  },
+  "rtdetrv4-m": {
+    "paper_map": 0.535,
+    "paper_params_m": 19,
+    "paper_flops_g": 57,
+    "source": "https://arxiv.org/abs/2510.25257",
+    "confidence": "med",
+    "notes": "RT-DETRv4-M. Paper 53.5 / repo 53.7."
+  },
+  "rtdetrv4-l": {
+    "paper_map": 0.554,
+    "paper_params_m": 31,
+    "paper_flops_g": 91,
+    "source": "https://arxiv.org/abs/2510.25257",
+    "confidence": "high",
+    "notes": "RT-DETRv4-L. Paper and repo agree (55.4)."
+  },
+  "rtdetrv4-x": {
+    "paper_map": 0.57,
+    "paper_params_m": 62,
+    "paper_flops_g": 202,
+    "source": "https://arxiv.org/abs/2510.25257",
+    "confidence": "high",
+    "notes": "RT-DETRv4-X. Paper and repo agree (57.0)."
+  },
+  "rtmdet-t": {
+    "paper_map": 0.411,
+    "paper_params_m": 4.8,
+    "paper_flops_g": 8.1,
+    "source": "https://github.com/open-mmlab/mmdetection/tree/main/configs/rtmdet",
+    "confidence": "high",
+    "notes": "rtmdet_tiny_8xb32-300e_coco."
+  },
+  "rtmdet-s": {
+    "paper_map": 0.446,
+    "paper_params_m": 8.89,
+    "paper_flops_g": 14.8,
+    "source": "https://github.com/open-mmlab/mmdetection/tree/main/configs/rtmdet",
+    "confidence": "high",
+    "notes": "rtmdet_s_8xb32-300e_coco."
+  },
+  "rtmdet-m": {
+    "paper_map": 0.494,
+    "paper_params_m": 24.71,
+    "paper_flops_g": 39.27,
+    "source": "https://github.com/open-mmlab/mmdetection/tree/main/configs/rtmdet",
+    "confidence": "high",
+    "notes": "rtmdet_m_8xb32-300e_coco."
+  },
+  "rtmdet-l": {
+    "paper_map": 0.515,
+    "paper_params_m": 52.3,
+    "paper_flops_g": 80.23,
+    "source": "https://github.com/open-mmlab/mmdetection/tree/main/configs/rtmdet",
+    "confidence": "high",
+    "notes": "rtmdet_l_8xb32-300e_coco. Measured 49.82 (-1.68); params match upstream so NOT a wrong checkpoint \u2014 likely preprocessing/NMS gap."
+  },
+  "rtmdet-x": {
+    "paper_map": 0.528,
+    "paper_params_m": 94.86,
+    "paper_flops_g": 141.67,
+    "source": "https://github.com/open-mmlab/mmdetection/tree/main/configs/rtmdet",
+    "confidence": "high",
+    "notes": "rtmdet_x_8xb32-300e_coco."
+  }
+}

@@ -16,9 +16,25 @@ from va_bench.models import (
 
 def test_registry_has_expected_models():
     keys = list_models()
-    assert len(keys) == 14
-    for fam in ("yolox-", "yolov9", "rfdetr-"):
+    assert len(keys) == 70
+    for fam in (
+        "damoyolo-",
+        "deim-",
+        "deimv2-",
+        "dfine-",
+        "ec-",
+        "picodet-",
+        "rfdetr-",
+        "rtdetr-",
+        "rtdetrv2-",
+        "rtdetrv4-",
+        "rtmdet-",
+        "yolov9",
+        "yolov9e2e-",
+        "yolox-",
+    ):
         assert any(k.startswith(fam) for k in keys)
+    assert not any(k.startswith("yolonas-") for k in keys)
 
 
 def test_get_spec_unknown_raises():
