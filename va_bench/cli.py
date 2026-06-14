@@ -18,8 +18,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     from .models import list_models
     from .output import save_result
 
-    if args.format == "onnx" and not args.weights_dir:
-        print("Error: --weights-dir is required when --format onnx")
+    if args.format in ("onnx", "tensorrt") and not args.weights_dir:
+        print(f"Error: --weights-dir is required when --format {args.format}")
         sys.exit(1)
 
     if args.all:
@@ -35,7 +35,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"  COCO dir: {args.coco_dir}")
     print(f"  Output:   {args.output_dir}")
     print(f"  Device:   {args.device}")
-    if args.format == "onnx":
+    if args.format in ("onnx", "tensorrt"):
         print(f"  Weights:  {args.weights_dir}")
 
     for key in model_keys:
@@ -105,12 +105,13 @@ def main() -> None:
     )
     run_parser.add_argument("--device", type=str, default="auto", help="Device (default: auto)")
     run_parser.add_argument(
-        "--format", choices=["pytorch", "onnx"], default="pytorch",
+        "--format", choices=["pytorch", "onnx", "tensorrt"], default="pytorch",
         help="Backend format (default: pytorch)",
     )
     run_parser.add_argument(
         "--weights-dir", type=str, default=None,
-        help="Directory with user-supplied .onnx weights (required with --format onnx)",
+        help="Directory with user-supplied .onnx / .engine weights "
+             "(required with --format onnx or --format tensorrt)",
     )
     run_parser.add_argument(
         "--conf", type=float, default=0.001,

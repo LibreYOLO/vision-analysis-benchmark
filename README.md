@@ -29,6 +29,10 @@ The registry covers 70 open LibreYOLO detection variants:
 
 YOLO-NAS is intentionally excluded because the weights are gated.
 
+`TensorRT` (FP16) is supported for any registered variant for which you supply a
+LibreYOLO-built `.engine` (plus its `.engine.json` sidecar) in `--weights-dir`,
+on the same backend path as `ONNX`.
+
 ## Runtime / Hardware Support
 
 | Runtime | Hardware | Status | Notes |
@@ -41,12 +45,12 @@ YOLO-NAS is intentionally excluded because the weights are gated.
 | `ONNX Runtime` | NVIDIA CUDA | Yes | Uses `CUDAExecutionProvider` when available. |
 | `ONNX Runtime` | Apple GPU / MPS | No | No MPS / CoreML / Metal path in this harness. |
 | `ONNX Runtime` | AMD / DirectML / ROCm | No | No provider support in this harness. |
+| `TensorRT` | NVIDIA CUDA | Yes | FP16 engines via LibreYOLO's native TensorRT backend. Expects a `.engine` plus its `.engine.json` sidecar in `--weights-dir`. Requires the `tensorrt` package + CUDA. |
 
 ## Out Of Scope Today
 
 | Item | Status |
 |---|---:|
-| TensorRT benchmarking in this harness | No |
 | OpenVINO benchmarking in this harness | No |
 | ncnn benchmarking in this harness | No |
 
