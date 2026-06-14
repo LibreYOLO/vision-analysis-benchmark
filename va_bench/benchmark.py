@@ -8,6 +8,9 @@ prediction collection, and memory tracking. Supports two backends:
   timing (preprocess / inference / postprocess) and VRAM stats on CUDA.
 * ``onnx``     — LibreYOLO's ONNX Runtime backend. Treated as a black
   box: total wall time per image, no phase split, no VRAM stats.
+* ``tensorrt`` — LibreYOLO's native TensorRT backend (FP16 engines).
+  Treated as a black box exactly like ``onnx``: total wall time per
+  image, no phase split, no VRAM stats.
 """
 
 from __future__ import annotations
@@ -30,7 +33,9 @@ from .models import (
     get_spec,
     load_model,
     load_onnx,
+    load_tensorrt,
     resolve_onnx_weights,
+    resolve_tensorrt_weights,
 )
 from .output import assemble_result
 from .timing import SyncTimer, compute_stats, device_sync, warmup
@@ -74,9 +79,10 @@ def benchmark_model(
         model_key: Registry key (e.g. "yolov9t", "yolox-s").
         coco_dir: Path to COCO directory containing images/val2017/ and
             annotations/instances_val2017.json.
-        fmt: Backend format — "pytorch" (default) or "onnx".
-        weights_dir: Directory containing user-supplied ONNX files.
-            Required when fmt="onnx", ignored otherwise.
+        fmt: Backend format — "pytorch" (default), "onnx", or "tensorrt".
+        weights_dir: Directory containing user-supplied ONNX files (.onnx)
+            or TensorRT engines (.engine + .engine.json sidecar).
+            Required when fmt="onnx" or fmt="tensorrt", ignored otherwise.
         device: Device string ("auto", "cuda", "mps", "cpu").
         conf: Confidence threshold for predictions.
         iou: IoU threshold for NMS.
@@ -98,7 +104,15 @@ def benchmark_model(
         return _benchmark_onnx(
             model_key, coco_dir, weights_dir, device, conf, iou, max_det, limit, verbose,
         )
-    raise ValueError(f"Unknown format: {fmt!r}. Use 'pytorch' or 'onnx'.")
+    if fmt == "tensorrt":
+        if weights_dir is None:
+            raise ValueError("weights_dir is required when fmt='tensorrt'")
+        return _benchmark_tensorrt(
+            model_key, coco_dir, weights_dir, device, conf, iou, max_det, limit, verbose,
+        )
+    raise ValueError(
+        f"Unknown format: {fmt!r}. Use 'pytorch', 'onnx', or 'tensorrt'."
+    )
 
 
 # =============================================================================
@@ -547,6 +561,155 @@ def _onnx_warmup(backend: Any, n_iters: int) -> None:
     for _ in range(n_iters):
         try:
             backend.predict(dummy, conf=0.5, iou=0.5, color_format="rgb")
+        except Exception:
+            break
+
+
+# =============================================================================
+# TensorRT path
+# =============================================================================
+
+def _benchmark_tensorrt(
+    model_key: str,
+    coco_dir: str | Path,
+    weights_dir: str | Path,
+    device: str,
+    conf: float,
+    iou: float,
+    max_det: int,
+    limit: int | None,
+    verbose: bool,
+) -> dict[str, Any]:
+    coco_dir = Path(coco_dir)
+
+    spec = get_spec(model_key)
+    engine_path = resolve_tensorrt_weights(spec, weights_dir)
+
+    if verbose:
+        print(f"\n{'=' * 70}")
+        print(f"Benchmarking: {spec.display_name} ({spec.key}) [TensorRT]")
+        print(f"{'=' * 70}")
+        print(f"  Weights: {engine_path}")
+
+    backend, _ = load_tensorrt(model_key, weights_dir, device=device)
+    # TensorRTBackend stores device as a string ("cuda").
+    backend_device = backend.device
+    if backend_device != "cuda":
+        raise RuntimeError(
+            "TensorRT benchmarking requires a CUDA device, but the backend resolved "
+            f"to device={backend_device!r}. Check the tensorrt + CUDA install."
+        )
+    imgsz = backend.imgsz
+
+    if verbose:
+        print(f"  Device: {backend_device}")
+        print(f"  Input size: {imgsz}")
+
+    measured_params = 0.0
+    if verbose:
+        print(f"  Parameters: n/a (TensorRT engine; paper: {spec.paper_params_m:.2f}M)")
+        print(f"  GFLOPs: {spec.paper_flops_g:.2f} (from paper)")
+
+    coco_gt, img_ids, img_dir = _load_coco(coco_dir, verbose)
+    img_ids = _apply_limit(img_ids, limit, verbose)
+
+    n_warmup = 10
+    if verbose:
+        print(f"\nWarming up ({n_warmup} iterations)...")
+    _tensorrt_warmup(backend, n_warmup)
+    if verbose:
+        print("  Done")
+
+    rss_before = _get_rss_mb()
+
+    total_times: list[float] = []
+    predictions: list[dict] = []
+
+    import time
+    pbar = tqdm(img_ids, desc="Benchmarking", disable=not verbose)
+    for img_id in pbar:
+        img_info = coco_gt.loadImgs(img_id)[0]
+        img_path = str(img_dir / img_info["file_name"])
+        pil_img = Image.open(img_path).convert("RGB")
+
+        t0 = time.perf_counter()
+        result = backend(
+            pil_img, conf=conf, iou=iou, max_det=max_det, color_format="rgb",
+        )
+        t1 = time.perf_counter()
+        total_times.append((t1 - t0) * 1000.0)
+
+        if len(result.boxes.xyxy) > 0:
+            _append_predictions(
+                predictions,
+                result.boxes.xyxy,
+                result.boxes.conf,
+                result.boxes.cls,
+                img_id,
+            )
+
+        if verbose:
+            pbar.set_postfix({
+                "ms": f"{(t1 - t0) * 1000.0:.1f}",
+                "dets": len(predictions),
+            })
+
+    rss_after = _get_rss_mb()
+    peak_ram_mb = max(rss_after - rss_before, 0.0)
+
+    total_arr = np.array(total_times)
+    total_stats = compute_stats(total_arr)
+    fps_mean = 1000.0 / total_stats["mean"] if total_stats["mean"] > 0 else 0.0
+    fps_p50 = 1000.0 / total_stats["p50"] if total_stats["p50"] > 0 else 0.0
+
+    _print_timing_summary(
+        verbose, len(img_ids), None, None, None, total_stats,
+        fps_mean, fps_p50, None, peak_ram_mb,
+    )
+
+    if verbose:
+        print(f"\nCOCO evaluation ({len(predictions)} detections)...")
+    coco_metrics = evaluate_coco(coco_gt, predictions, image_ids=img_ids)
+
+    if verbose:
+        _print_accuracy(coco_metrics)
+
+    hw_sw = collect_hw()
+    return assemble_result(
+        spec=spec,
+        coco_metrics=coco_metrics,
+        total_stats=total_stats,
+        preprocess_ms=None,
+        inference_ms=None,
+        postprocess_ms=None,
+        fps_mean=round(fps_mean, 2),
+        fps_p50=round(fps_p50, 2),
+        num_images=len(img_ids),
+        measured_params_m=round(measured_params, 2),
+        peak_vram_mb=None,
+        peak_ram_mb=round(peak_ram_mb, 1),
+        device_type="gpu",
+        provider="cuda",
+        hardware=hw_sw["hardware"],
+        software=hw_sw["software"],
+        actual_input_size=imgsz,
+        conf=conf,
+        iou=iou,
+        max_det=max_det,
+        fmt="tensorrt",
+        precision="fp16",
+    )
+
+
+def _tensorrt_warmup(backend: Any, n_iters: int) -> None:
+    """Run dummy forward passes through a TensorRT backend to stabilize caches."""
+    imgsz = backend.imgsz
+    dummy = Image.fromarray(
+        np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
+    )
+    for _ in range(n_iters):
+        try:
+            backend(dummy, conf=0.5, iou=0.5, color_format="rgb")
         except Exception:
             break
 

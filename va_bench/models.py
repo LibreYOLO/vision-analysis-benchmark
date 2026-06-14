@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SUPPORTED_FORMATS = ("pytorch", "onnx")
+SUPPORTED_FORMATS = ("pytorch", "onnx", "tensorrt")
 
 
 @dataclass(frozen=True)
@@ -205,6 +205,39 @@ def load_onnx(key: str, weights_dir: str | Path, device: str = "auto"):
     spec = get_spec(key)
     onnx_path = resolve_onnx_weights(spec, weights_dir)
     backend = LibreYOLO(model_path=str(onnx_path), device=device)
+    return backend, spec
+
+
+def resolve_tensorrt_weights(spec: ModelSpec, weights_dir: str | Path) -> Path:
+    """Return the path to a user-supplied TensorRT engine for this spec.
+
+    Looks for ``{weight_file_stem}.engine`` in ``weights_dir``. Raises
+    ``FileNotFoundError`` if missing — we never auto-build from ``.pt``/``.onnx``.
+    The engine is expected to ship with a ``<engine>.json`` metadata sidecar.
+    """
+    stem = Path(spec.weight_file).stem
+    engine_path = Path(weights_dir) / f"{stem}.engine"
+    if not engine_path.exists():
+        raise FileNotFoundError(
+            f"TensorRT engine not found for {spec.key}: expected {engine_path}. "
+            f"Build with LibreYOLO's TensorRT export (FP16) and place the .engine "
+            f"plus its .engine.json sidecar in the weights dir."
+        )
+    return engine_path
+
+
+def load_tensorrt(key: str, weights_dir: str | Path, device: str = "cuda"):
+    """Load a LibreYOLO TensorRT backend by registry key.
+
+    Resolves the ``.engine`` file (with its ``.engine.json`` sidecar) and
+    returns the backend instance and its spec. Requires the ``tensorrt``
+    python package + CUDA.
+    """
+    from libreyolo.backends.tensorrt import TensorRTBackend
+
+    spec = get_spec(key)
+    engine_path = resolve_tensorrt_weights(spec, weights_dir)
+    backend = TensorRTBackend(str(engine_path), device=device)
     return backend, spec
 
 

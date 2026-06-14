@@ -80,6 +80,7 @@ def assemble_result(
     iou: float,
     max_det: int,
     fmt: str = "pytorch",
+    precision: str = "fp32",
 ) -> dict[str, Any]:
     """Assemble the final result dict matching the website's RawBenchmark schema."""
     gflops = spec.paper_flops_g if spec.paper_flops_g > 0 else 0.0
@@ -175,7 +176,7 @@ def assemble_result(
         },
         "runtime": {
             "format": fmt,
-            "precision": "fp32",
+            "precision": precision,
             "provider": provider,
             "device": device_type,
         },
