@@ -51,6 +51,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                 max_det=args.max_det,
                 limit=args.limit,
                 verbose=not args.quiet,
+                precision=args.precision,
             )
             filepath = save_result(result, args.output_dir)
             print(f"\nSaved: {filepath}")
@@ -129,6 +130,10 @@ def main() -> None:
         "--limit", type=int, default=None,
         help="Evaluate only the first N val2017 images (dev/CPU subset; "
              "NOT a valid full-val2017 submission). Default: all images.",
+    )
+    run_parser.add_argument(
+        "--precision", type=str, default="fp16", choices=["fp16", "fp32"],
+        help="TensorRT engine precision label recorded in the submission (default: fp16)",
     )
     run_parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
     run_parser.add_argument("--debug", action="store_true", help="Print full tracebacks on error")
