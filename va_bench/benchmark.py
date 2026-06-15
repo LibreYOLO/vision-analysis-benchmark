@@ -72,6 +72,7 @@ def benchmark_model(
     max_det: int = 300,
     limit: int | None = None,
     verbose: bool = True,
+    precision: str = "fp16",
 ) -> dict[str, Any]:
     """Benchmark a single model on COCO val2017.
 
@@ -108,7 +109,7 @@ def benchmark_model(
         if weights_dir is None:
             raise ValueError("weights_dir is required when fmt='tensorrt'")
         return _benchmark_tensorrt(
-            model_key, coco_dir, weights_dir, device, conf, iou, max_det, limit, verbose,
+            model_key, coco_dir, weights_dir, device, conf, iou, max_det, limit, verbose, precision,
         )
     raise ValueError(
         f"Unknown format: {fmt!r}. Use 'pytorch', 'onnx', or 'tensorrt'."
@@ -579,6 +580,7 @@ def _benchmark_tensorrt(
     max_det: int,
     limit: int | None,
     verbose: bool,
+    precision: str = "fp16",
 ) -> dict[str, Any]:
     coco_dir = Path(coco_dir)
 
@@ -697,7 +699,7 @@ def _benchmark_tensorrt(
         iou=iou,
         max_det=max_det,
         fmt="tensorrt",
-        precision="fp16",
+        precision=precision,
     )
 
 
