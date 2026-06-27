@@ -17,6 +17,29 @@ Use this skill only in `vision-analysis-benchmark`.
 - Output contract: `va.submission.v1`
 - This skill is for generating result JSONs, not for opening website PRs
 
+## Dataset & protocol (canonical)
+
+Every published row uses the **same 500-image COCO subset**, not full val2017:
+
+- **Dataset: `LibreYOLO/coco-val2017-mini500`** on the HF LibreYOLO org (deterministic
+  first-500 of COCO val2017). Materialize it with `huggingface_hub.snapshot_download`
+  (repo_type=`dataset`). Point `--coco-dir` at the result.
+- **Layout the harness expects:** `<coco-dir>/annotations/instances_val2017.json` and
+  `<coco-dir>/images/val2017/`. The HF annotation file is named
+  `instances_val2017_mini500.json`, so symlink it:
+  `ln -sf instances_val2017_mini500.json annotations/instances_val2017.json`.
+- **Do NOT use `--limit`** to fake a subset: the harness defaults to full 5000 and
+  brands `--limit` runs "not a valid submission". The canonical protocol is the
+  mini500 dataset over all its images.
+- **Protocol config** (the harness defaults match): input 640, batch 1, `conf=0.001`,
+  `iou=0.6`, `max_det=300`.
+
+The website schema (`vision-analysis/support-matrix.json` + `runtimes.json`) accepts
+runtimes `pytorch` (cpu/cuda/mps), `onnx` (cpu/cuda), `tensorrt` (cuda, fp16/fp32).
+ncnn and hailo are not in the schema yet. `benchmark.libreyolo_commit` must be in
+`supported_libreyolo_identifier` OR be `"unknown"` (a plain PyPI install resolves to
+`"unknown"`, which passes validation).
+
 ## Workflow
 
 1. Read the current support surface before running anything:
