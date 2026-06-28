@@ -113,6 +113,11 @@ _register(
     ModelSpec("ec-m", "EC-M", "ec", "m", "LibreECm.pt", "m", 640, 0.0, 0.0),
     ModelSpec("ec-l", "EC-L", "ec", "l", "LibreECl.pt", "l", 640, 0.0, 0.0),
     ModelSpec("ec-x", "EC-X", "ec", "x", "LibreECx.pt", "x", 640, 0.0, 0.0),
+    # --- YOLO-NAS (3 variants; LibreYOLO ships Apache-2.0 retrained weights,
+    #     auto-downloaded as LibreYOLONAS<size>.pt). On the site support-matrix. ---
+    ModelSpec("yolonas-s", "YOLO-NAS-S", "yolonas", "s", "LibreYOLONASs.pt", "s", 640, 0.0, 0.0),
+    ModelSpec("yolonas-m", "YOLO-NAS-M", "yolonas", "m", "LibreYOLONASm.pt", "m", 640, 0.0, 0.0),
+    ModelSpec("yolonas-l", "YOLO-NAS-L", "yolonas", "l", "LibreYOLONASl.pt", "l", 640, 0.0, 0.0),
 )
 
 # ---------------------------------------------------------------------------
@@ -122,13 +127,6 @@ _register(
 # variants are registered.
 # ---------------------------------------------------------------------------
 _register(
-    # DAMO-YOLO (6 open variants; -l is gated 401)
-    ModelSpec("damoyolo-ns", "DAMO-YOLO-Ns", "damoyolo", "ns", "LibreDAMOYOLOns.pt", "ns", 416, 0.0, 0.0),
-    ModelSpec("damoyolo-nm", "DAMO-YOLO-Nm", "damoyolo", "nm", "LibreDAMOYOLOnm.pt", "nm", 416, 0.0, 0.0),
-    ModelSpec("damoyolo-nl", "DAMO-YOLO-Nl", "damoyolo", "nl", "LibreDAMOYOLOnl.pt", "nl", 416, 0.0, 0.0),
-    ModelSpec("damoyolo-t", "DAMO-YOLO-T", "damoyolo", "t", "LibreDAMOYOLOt.pt", "t", 640, 0.0, 0.0),
-    ModelSpec("damoyolo-s", "DAMO-YOLO-S", "damoyolo", "s", "LibreDAMOYOLOs.pt", "s", 640, 0.0, 0.0),
-    ModelSpec("damoyolo-m", "DAMO-YOLO-M", "damoyolo", "m", "LibreDAMOYOLOm.pt", "m", 640, 0.0, 0.0),
     # RT-DETRv2 (5)
     ModelSpec("rtdetrv2-r18", "RT-DETRv2-R18", "rtdetrv2", "r18", "LibreRTDETRv2r18.pt", "r18", 640, 0.0, 0.0),
     ModelSpec("rtdetrv2-r34", "RT-DETRv2-R34", "rtdetrv2", "r34", "LibreRTDETRv2r34.pt", "r34", 640, 0.0, 0.0),
