@@ -16,9 +16,8 @@ from va_bench.models import (
 
 def test_registry_has_expected_models():
     keys = list_models()
-    assert len(keys) == 70
+    assert len(keys) == 77
     for fam in (
-        "damoyolo-",
         "deim-",
         "deimv2-",
         "dfine-",
@@ -29,12 +28,34 @@ def test_registry_has_expected_models():
         "rtdetrv2-",
         "rtdetrv4-",
         "rtmdet-",
+        "uly-",
+        "yolonas-",
         "yolov9",
         "yolov9e2e-",
         "yolox-",
     ):
         assert any(k.startswith(fam) for k in keys)
-    assert not any(k.startswith("yolonas-") for k in keys)
+    # damoyolo was swapped out for yolonas (c2d7c3d)
+    assert not any(k.startswith("damoyolo-") for k in keys)
+
+
+def test_registry_ultralytics_source():
+    keys = list_models()
+    uly_keys = [k for k in keys if k.startswith("uly-")]
+    assert sorted(uly_keys) == [
+        f"uly-{fam}{size}"
+        for fam in ("yolo11", "yolov8")
+        for size in ("l", "m", "n", "s", "x")
+    ]
+    for key in keys:
+        spec = MODEL_REGISTRY[key]
+        if key.startswith("uly-"):
+            assert spec.source == "ultralytics"
+            # official ultralytics weight files, not LibreYOLO ones
+            assert spec.weight_file.startswith("yolo")
+            assert spec.input_size == 640
+        else:
+            assert spec.source == "libreyolo"
 
 
 def test_get_spec_unknown_raises():

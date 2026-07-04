@@ -26,6 +26,7 @@ class ModelSpec:
     input_size: int
     paper_params_m: float
     paper_flops_g: float
+    source: str = "libreyolo"
 
 
 # Specs sourced from vision-analysis website models.json + LibreYOLO model classes.
@@ -146,6 +147,41 @@ _register(
     ModelSpec("rtmdet-x", "RTMDet-X", "rtmdet", "x", "LibreRTMDetx.pt", "x", 640, 0.0, 0.0),
 )
 
+# ---------------------------------------------------------------------------
+# Ultralytics source (subprocess driver — see PLAN_ultralytics_source.md).
+#
+# These models run through drivers/ultralytics/uly_driver.py in a separate
+# venv; the harness never imports the ultralytics package. paper params /
+# GFLOPs verified against the local ultralytics checkout docs
+# (docs/en/models/yolo11.md and docs/en/models/yolov8.md, "Detection (COCO)"
+# tables). Weights are the official yolo*.pt files, pre-downloaded from
+# GitHub releases.
+# ---------------------------------------------------------------------------
+_register(
+    # --- YOLO11 (5 variants) ---
+    ModelSpec("uly-yolo11n", "YOLO11n", "yolo11", "n", "yolo11n.pt", "n", 640, 2.6, 6.5,
+              source="ultralytics"),
+    ModelSpec("uly-yolo11s", "YOLO11s", "yolo11", "s", "yolo11s.pt", "s", 640, 9.4, 21.5,
+              source="ultralytics"),
+    ModelSpec("uly-yolo11m", "YOLO11m", "yolo11", "m", "yolo11m.pt", "m", 640, 20.1, 68.0,
+              source="ultralytics"),
+    ModelSpec("uly-yolo11l", "YOLO11l", "yolo11", "l", "yolo11l.pt", "l", 640, 25.3, 86.9,
+              source="ultralytics"),
+    ModelSpec("uly-yolo11x", "YOLO11x", "yolo11", "x", "yolo11x.pt", "x", 640, 56.9, 194.9,
+              source="ultralytics"),
+    # --- YOLOv8 (5 variants) ---
+    ModelSpec("uly-yolov8n", "YOLOv8n", "yolov8", "n", "yolov8n.pt", "n", 640, 3.2, 8.7,
+              source="ultralytics"),
+    ModelSpec("uly-yolov8s", "YOLOv8s", "yolov8", "s", "yolov8s.pt", "s", 640, 11.2, 28.6,
+              source="ultralytics"),
+    ModelSpec("uly-yolov8m", "YOLOv8m", "yolov8", "m", "yolov8m.pt", "m", 640, 25.9, 78.9,
+              source="ultralytics"),
+    ModelSpec("uly-yolov8l", "YOLOv8l", "yolov8", "l", "yolov8l.pt", "l", 640, 43.7, 165.2,
+              source="ultralytics"),
+    ModelSpec("uly-yolov8x", "YOLOv8x", "yolov8", "x", "yolov8x.pt", "x", 640, 68.2, 257.8,
+              source="ultralytics"),
+)
+
 
 def list_models() -> list[str]:
     """Return sorted list of all model keys."""
@@ -173,6 +209,12 @@ def load_model(key: str, device: str = "auto"):
     from libreyolo import LibreYOLO
 
     spec = get_spec(key)
+    if spec.source != "libreyolo":
+        raise ValueError(
+            f"Model '{key}' has source '{spec.source}' and cannot be loaded with "
+            f"LibreYOLO. Use the source-specific benchmark path (e.g. "
+            f"run_ultralytics_benchmark for source 'ultralytics')."
+        )
     model = LibreYOLO(model_path=spec.weight_file, size=spec.constructor_size, device=device)
     return model, spec
 

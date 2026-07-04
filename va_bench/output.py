@@ -81,13 +81,40 @@ def assemble_result(
     max_det: int,
     fmt: str = "pytorch",
     precision: str = "fp32",
+    source: str = "libreyolo",
+    impl_provider: str | None = None,
+    impl_version: str | None = None,
+    extra_software: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Assemble the final result dict matching the website's RawBenchmark schema."""
+    """Assemble the final result dict matching the website's RawBenchmark schema.
+
+    ``source`` / ``impl_provider`` / ``impl_version`` / ``extra_software``
+    default to the historical libreyolo-only behavior. Non-libreyolo runs
+    (e.g. the ultralytics subprocess driver) pass their own provenance:
+    ``source`` lands in ``model.source``, ``impl_provider``/``impl_version``
+    in ``implementation``, and ``extra_software`` entries are merged into
+    ``software`` (e.g. ``{"ultralytics": "8.4.60"}``).
+    """
     gflops = spec.paper_flops_g if spec.paper_flops_g > 0 else 0.0
     params_m = measured_params_m if measured_params_m > 0 else spec.paper_params_m
     now = _utc_now()
     created_at = _isoformat_z(now)
     hardware_id = detect_hardware_id(hardware)
+
+    software_out = dict(software)
+    if extra_software:
+        software_out.update(extra_software)
+
+    if impl_provider is None:
+        implementation = {
+            "provider": "libreyolo",
+            "version": software.get("libreyolo", "unknown"),
+        }
+    else:
+        implementation = {
+            "provider": impl_provider,
+            "version": impl_version if impl_version is not None else "unknown",
+        }
 
     return {
         "schema_version": "va.submission.v1",
@@ -104,7 +131,7 @@ def assemble_result(
             "name": spec.display_name.lower().replace(" ", ""),
             "family": spec.family,
             "variant": spec.variant,
-            "source": "libreyolo",
+            "source": source,
             "weights": spec.weight_file,
             "input_size": actual_input_size,
         },
@@ -124,7 +151,7 @@ def assemble_result(
             **hardware,
             "id": hardware_id,
         },
-        "software": software,
+        "software": software_out,
         "accuracy": {
             "mAP_50_95": coco_metrics["mAP"],
             "mAP_50": coco_metrics["mAP50"],
@@ -170,10 +197,7 @@ def assemble_result(
             "split": "val2017",
             "numImages": num_images,
         },
-        "implementation": {
-            "provider": "libreyolo",
-            "version": software.get("libreyolo", "unknown"),
-        },
+        "implementation": implementation,
         "runtime": {
             "format": fmt,
             "precision": precision,

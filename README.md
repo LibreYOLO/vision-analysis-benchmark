@@ -8,7 +8,9 @@ assuming the local editable install points at the intended branch.
 
 ## Model / Backend Support
 
-The registry covers 70 open LibreYOLO detection variants:
+The registry covers 77 model variants from two sources: 67 open LibreYOLO
+detection variants plus 10 Ultralytics-source models (see
+[Ultralytics Source](#ultralytics-source-subprocess-driver) below).
 
 | Family | Variants | PyTorch | ONNX | Notes |
 |---|---:|---:|---:|---|
@@ -24,14 +26,49 @@ The registry covers 70 open LibreYOLO detection variants:
 | D-FINE | 5 | Yes | Yes |  |
 | PicoDet | 3 | Yes | Yes |  |
 | EC / EdgeCrafter | 4 | Yes | Yes |  |
-| DAMO-YOLO | 6 | Yes | Yes | Open variants only. |
 | RTMDet | 5 | Yes | Yes |  |
-
-YOLO-NAS is intentionally excluded because the weights are gated.
+| YOLO-NAS | 3 | Registered | Registered | Replaced DAMO-YOLO in the registry (c2d7c3d); no benchmark results produced through this harness yet. |
 
 `TensorRT` (FP16) is supported for any registered variant for which you supply a
 LibreYOLO-built `.engine` (plus its `.engine.json` sidecar) in `--weights-dir`,
 on the same backend path as `ONNX`.
+
+## Ultralytics Source (subprocess driver)
+
+The registry also lists 10 Ultralytics-source models — YOLO11 n/s/m/l/x and
+YOLOv8 n/s/m/l/x (keys `uly-yolo11n` … `uly-yolov8x`). They are benchmarked
+through a standalone subprocess driver; the harness process never imports the
+`ultralytics` package (AGPL isolation boundary).
+
+| Family | Variants | PyTorch | ONNX | TensorRT | Notes |
+|---|---:|---:|---:|---:|---|
+| YOLO11 (`uly-yolo11*`) | 5 | Yes (driver) | No | No | `uly-yolo11n` validated end-to-end (see below). |
+| YOLOv8 (`uly-yolov8*`) | 5 | Yes (driver) | No | No | Same driver code path; not individually validated yet. |
+
+- **PyTorch only**, batch=1. Official `.pt` weights are pre-downloaded from
+  GitHub release assets by `drivers/ultralytics/fetch_weights.py`; the driver
+  itself never downloads anything.
+- Runs in a separate pinned venv (`.venv-ultralytics/`,
+  `ultralytics==8.4.60`) via `drivers/ultralytics/uly_driver.py`. The harness
+  exchanges JSON files with it over a subprocess boundary; point
+  `--uly-python` (or the `VA_ULY_PYTHON` env var) at the driver venv's
+  python.
+- **Telemetry is disabled and proven off at runtime**: the driver pre-writes
+  a complete `settings.json` with `sync: false`, runs with
+  `YOLO_OFFLINE=true`, and blocks all sockets for the entire run — any
+  network attempt fails the run loudly. Audit:
+  [docs/ULTRALYTICS_TELEMETRY.md](docs/ULTRALYTICS_TELEMETRY.md); driver
+  details: [drivers/ultralytics/README.md](drivers/ultralytics/README.md).
+- Default NMS IoU is per source: 0.6 for LibreYOLO models, 0.7 for
+  Ultralytics models (their shipped predict default); override with `--iou`.
+  Phase timings come from ultralytics' own per-result `speed` instrumentation;
+  total/FPS come from the driver's device-synced wall clock.
+- **What has been exercised**: `uly-yolo11n` end-to-end on full COCO val2017
+  (RTX 5070 Ti, fp32, conf=0.001 / iou=0.7 / max_det=300) — measured
+  mAP50-95 38.7 vs the published 39.5, inside the ±1.0 acceptance gate
+  (`predict`-per-image protocol, not their `val` path). The other nine
+  registry rows run the identical driver code path but have not been
+  individually validated.
 
 ## Runtime / Hardware Support
 

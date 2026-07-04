@@ -27,3 +27,9 @@ weights/
 .env
 .DS_Store
 Thumbs.db
+
+# Ultralytics subprocess driver (local-only artifacts)
+.venv-ultralytics/
+drivers/ultralytics/weights/
+drivers/ultralytics/config/
+drivers/ultralytics/scratch/
