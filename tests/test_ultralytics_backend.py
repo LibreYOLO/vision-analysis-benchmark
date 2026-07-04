@@ -245,7 +245,9 @@ def test_result_carries_ultralytics_provenance(coco_dir, weights_dir, fake_hw):
     result = _run(coco_dir, weights_dir)
 
     assert result["schema_version"] == "va.submission.v1"
-    assert result["model"]["id"] == "uly-yolo11n"
+    # model.id is the site-canonical competitor id, not the uly-* CLI key,
+    # so the numbers attach to the reference row the website already has.
+    assert result["model"]["id"] == "yolo11n"
     assert result["model"]["source"] == "ultralytics"
     assert result["model"]["family"] == "yolo11"
     assert result["model"]["weights"] == "yolo11n.pt"
@@ -271,6 +273,10 @@ def test_result_carries_ultralytics_provenance(coco_dir, weights_dir, fake_hw):
         "iou": 0.7,
         "max_det": 300,
     }
+    # No LibreYOLO is loaded for a competitor run, so its provenance is blanked
+    # (the website validates libreyolo_commit against an allowlist).
+    assert result["benchmark"]["libreyolo_version"] == "unknown"
+    assert result["benchmark"]["libreyolo_commit"] == "unknown"
     assert result["model_stats"]["params_millions"] == 2.62
     assert result["memory"]["peak_vram_mb"] == 812.0
     assert result["memory"]["peak_ram_mb"] == 1234.0
@@ -293,7 +299,7 @@ def test_result_matches_existing_schema_shape(coco_dir, weights_dir, fake_hw, tm
     from va_bench.output import save_result
 
     path = save_result(result, tmp_path)
-    assert path.name.startswith("uly-yolo11n__pytorch__cpu__")
+    assert path.name.startswith("yolo11n__pytorch__cpu__")
     loaded = json.loads(path.read_text())
     assert loaded["schema_version"] == "va.submission.v1"
 

@@ -27,6 +27,15 @@ class ModelSpec:
     paper_params_m: float
     paper_flops_g: float
     source: str = "libreyolo"
+    # Canonical id the website keys on. For libreyolo the registry key already
+    # matches the site id; for ultralytics the CLI key is namespaced (uly-*)
+    # but submissions must carry the site's competitor id (e.g. "yolo11n") so
+    # the measured numbers attach to the reference row models.json already has.
+    public_id: str = ""
+
+    @property
+    def site_id(self) -> str:
+        return self.public_id or self.key
 
 
 # Specs sourced from vision-analysis website models.json + LibreYOLO model classes.
@@ -160,26 +169,26 @@ _register(
 _register(
     # --- YOLO11 (5 variants) ---
     ModelSpec("uly-yolo11n", "YOLO11n", "yolo11", "n", "yolo11n.pt", "n", 640, 2.6, 6.5,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolo11n"),
     ModelSpec("uly-yolo11s", "YOLO11s", "yolo11", "s", "yolo11s.pt", "s", 640, 9.4, 21.5,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolo11s"),
     ModelSpec("uly-yolo11m", "YOLO11m", "yolo11", "m", "yolo11m.pt", "m", 640, 20.1, 68.0,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolo11m"),
     ModelSpec("uly-yolo11l", "YOLO11l", "yolo11", "l", "yolo11l.pt", "l", 640, 25.3, 86.9,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolo11l"),
     ModelSpec("uly-yolo11x", "YOLO11x", "yolo11", "x", "yolo11x.pt", "x", 640, 56.9, 194.9,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolo11x"),
     # --- YOLOv8 (5 variants) ---
     ModelSpec("uly-yolov8n", "YOLOv8n", "yolov8", "n", "yolov8n.pt", "n", 640, 3.2, 8.7,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolov8n"),
     ModelSpec("uly-yolov8s", "YOLOv8s", "yolov8", "s", "yolov8s.pt", "s", 640, 11.2, 28.6,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolov8s"),
     ModelSpec("uly-yolov8m", "YOLOv8m", "yolov8", "m", "yolov8m.pt", "m", 640, 25.9, 78.9,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolov8m"),
     ModelSpec("uly-yolov8l", "YOLOv8l", "yolov8", "l", "yolov8l.pt", "l", 640, 43.7, 165.2,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolov8l"),
     ModelSpec("uly-yolov8x", "YOLOv8x", "yolov8", "x", "yolov8x.pt", "x", 640, 68.2, 257.8,
-              source="ultralytics"),
+              source="ultralytics", public_id="yolov8x"),
 )
 
 

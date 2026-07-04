@@ -116,18 +116,29 @@ def assemble_result(
             "version": impl_version if impl_version is not None else "unknown",
         }
 
+    # LibreYOLO provenance is meaningless for a competitor run (no LibreYOLO
+    # model is loaded), and the website validates libreyolo_commit against an
+    # allowlist — so report "unknown" for non-libreyolo sources, which the
+    # validator skips. The ultralytics version lives in software/implementation.
+    if source == "libreyolo":
+        libreyolo_version = software.get("libreyolo", "unknown")
+        libreyolo_commit = software.get("libreyolo_commit", "unknown")
+    else:
+        libreyolo_version = "unknown"
+        libreyolo_commit = "unknown"
+
     return {
         "schema_version": "va.submission.v1",
-        "submission_id": f"{spec.key}-{fmt}-{provider}-{hardware_id}-{now.strftime('%Y%m%dT%H%M%SZ')}",
+        "submission_id": f"{spec.site_id}-{fmt}-{provider}-{hardware_id}-{now.strftime('%Y%m%dT%H%M%SZ')}",
         "created_at": created_at,
         "benchmark": {
             "harness": "vision-analysis-benchmark",
             "harness_version": __version__,
-            "libreyolo_version": software.get("libreyolo", "unknown"),
-            "libreyolo_commit": software.get("libreyolo_commit", "unknown"),
+            "libreyolo_version": libreyolo_version,
+            "libreyolo_commit": libreyolo_commit,
         },
         "model": {
-            "id": spec.key,
+            "id": spec.site_id,
             "name": spec.display_name.lower().replace(" ", ""),
             "family": spec.family,
             "variant": spec.variant,
