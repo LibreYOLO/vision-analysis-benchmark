@@ -19,7 +19,24 @@ Use this skill only in `vision-analysis-benchmark`.
 
 ## Dataset & protocol (canonical)
 
-Every published row uses the **same 500-image COCO subset**, not full val2017:
+Accuracy and latency are measured on **different splits, on purpose**:
+
+- **Accuracy (mAP) — full val2017 (5000 images), measured once per model + precision.**
+  mAP is hardware-independent: the same weights + precision + images produce the same
+  detections on any device. So establish a model's accuracy with **one** run over the full
+  5000 COCO val2017 images, in the format/precision that preserves its best performance
+  (typically PyTorch fp32). Reuse that mAP for every row of the model at that precision, on
+  any hardware. A lower-precision path (e.g. INT8/Hailo) gets its **own** full-val reference
+  run, because quantization changes accuracy.
+- **Latency — mini500, measured on every hardware × format × precision.** Latency is
+  hardware-dependent, so measure it per device; 500 images is enough for stable latency
+  percentiles and keeps runs fast on slow hardware (Pi/CPU).
+- A published row therefore **combines accuracy from the full-val reference run with timing
+  from the mini500 run on that hardware** (the harness records both in one JSON; when they
+  come from different runs, take `accuracy` from the full-val run and `timing`/`throughput`
+  from the mini500 run).
+
+The latency (mini500) runs use the **same 500-image COCO subset**, not full val2017:
 
 - **Dataset: `LibreYOLO/coco-val2017-mini500`** on the HF LibreYOLO org (deterministic
   first-500 of COCO val2017). Materialize it with `huggingface_hub.snapshot_download`
