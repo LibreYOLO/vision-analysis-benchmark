@@ -131,12 +131,28 @@ def get_software_info() -> dict[str, str]:
     except ImportError:
         pass
 
+    onnx_version = "not-installed"
+    try:
+        import onnx
+        onnx_version = onnx.__version__
+    except ImportError:
+        pass
+
+    tensorrt_version = "not-installed"
+    try:
+        import tensorrt
+        tensorrt_version = tensorrt.__version__
+    except ImportError:
+        pass
+
     return {
         "python": platform.python_version(),
         "torch": torch.__version__,
         "libreyolo": libreyolo_version,
         "libreyolo_commit": libreyolo_commit,
         "onnxruntime": onnxruntime_version,
+        "onnx": onnx_version,
+        "tensorrt": tensorrt_version,
     }
 
 

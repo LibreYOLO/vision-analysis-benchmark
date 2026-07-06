@@ -81,6 +81,7 @@ def assemble_result(
     max_det: int,
     fmt: str = "pytorch",
     precision: str = "fp32",
+    repro: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the final result dict matching the website's RawBenchmark schema."""
     gflops = spec.paper_flops_g if spec.paper_flops_g > 0 else 0.0
@@ -180,6 +181,7 @@ def assemble_result(
             "provider": provider,
             "device": device_type,
         },
+        "repro": repro or {},
     }
 
 

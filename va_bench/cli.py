@@ -17,6 +17,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     from .benchmark import benchmark_model
     from .models import list_models
     from .output import save_result
+    from .provenance import harness_git_info, reconstruct_command
 
     if args.format in ("onnx", "tensorrt") and not args.weights_dir:
         print(f"Error: --weights-dir is required when --format {args.format}")
@@ -38,6 +39,15 @@ def cmd_run(args: argparse.Namespace) -> None:
     if args.format in ("onnx", "tensorrt"):
         print(f"  Weights:  {args.weights_dir}")
 
+    # Invocation-level provenance, shared by every model in this run.
+    harness = harness_git_info()
+    invocation = {
+        "harness_commit": harness["commit"],
+        "harness_dirty": harness["dirty"],
+        "argv": sys.argv[1:],
+        "command": reconstruct_command(sys.argv[1:]),
+    }
+
     for key in model_keys:
         try:
             result = benchmark_model(
@@ -52,7 +62,10 @@ def cmd_run(args: argparse.Namespace) -> None:
                 limit=args.limit,
                 verbose=not args.quiet,
                 precision=args.precision,
+                dataset_id=args.dataset_id,
+                dataset_revision=args.dataset_revision,
             )
+            result.setdefault("repro", {}).update(invocation)
             filepath = save_result(result, args.output_dir)
             print(f"\nSaved: {filepath}")
         except Exception as e:
@@ -134,6 +147,16 @@ def main() -> None:
     run_parser.add_argument(
         "--precision", type=str, default="fp16", choices=["fp16", "fp32"],
         help="TensorRT engine precision label recorded in the submission (default: fp16)",
+    )
+    run_parser.add_argument(
+        "--dataset-id", type=str, default=None,
+        help="HF dataset label recorded in repro.dataset.hf_dataset "
+             "(default: LibreYOLO/coco-val2017-mini500). The verifiable identity "
+             "is the computed image_id_sha256, not this label.",
+    )
+    run_parser.add_argument(
+        "--dataset-revision", type=str, default=None,
+        help="HF dataset revision recorded in repro.dataset.hf_revision (default: main)",
     )
     run_parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
     run_parser.add_argument("--debug", action="store_true", help="Print full tracebacks on error")

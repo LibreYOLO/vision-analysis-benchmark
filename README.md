@@ -6,6 +6,40 @@ The harness records the exact LibreYOLO version and commit in each emitted
 result JSON. For public submissions, validate the result JSON rather than
 assuming the local editable install points at the intended branch.
 
+## Reproducibility
+
+Every emitted JSON carries a `repro` block so a third party can reproduce the
+number without guessing how it was run:
+
+- `harness_commit` / `harness_dirty`: the `vision-analysis-benchmark` commit
+  the run used, and whether its working tree had uncommitted changes. A run
+  from a dirty tree is flagged, not silently passed off as pinned.
+- `command` / `argv`: the exact `va-bench` command line, ready to copy and paste.
+- `dataset.image_id_sha256`: a verifiable fingerprint of the evaluated image-id
+  set. This is the ground truth for which images were scored (mini500 vs full
+  val2017 vs any subset), independent of the human-readable `hf_dataset` label.
+- `weights`: the weights filename, its SHA-256 (for user-supplied ONNX/TensorRT
+  artifacts; `null` for LibreYOLO-managed `.pt` files, which stay pinned by the
+  model name plus `benchmark.libreyolo_commit`), and, for ONNX/TensorRT, the
+  export manifest read from a `<weights>.json` sidecar plus the detected opset.
+
+The `libreyolo` commit is still the pin for model behavior; the `repro` block
+adds the harness side of the story.
+
+### Export manifests (ONNX / TensorRT)
+
+ONNX and TensorRT runs benchmark a user-supplied artifact. To make those
+reproducible too, place a `<weights>.json` sidecar next to the artifact
+(e.g. `LibreYOLO9t.engine.json`) recording how it was built: the export or
+`trtexec` command, source opset, TensorRT version, and builder flags. The
+harness embeds it verbatim under `repro.weights.export_manifest`.
+
+### Releases
+
+Tag harness releases so `harness_version` maps to an immutable point in
+history: `git tag v2.1.0 && git push --tags`. `harness_commit` remains the
+exact pin regardless of tagging.
+
 ## Model / Backend Support
 
 The registry covers 70 open LibreYOLO detection variants:
