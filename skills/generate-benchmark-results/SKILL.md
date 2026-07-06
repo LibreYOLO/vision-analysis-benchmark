@@ -30,6 +30,9 @@ Use this skill only in `vision-analysis-benchmark`.
    - On NVIDIA machines, prefer a clean venv with `PIP_USER=0` and `PYTHONNOUSERSITE=1`.
    - Make sure the installed `libreyolo` matches the pinned support commit in `README.md`.
    - Make sure PyTorch CUDA wheels match the host driver/runtime before starting a long run.
+   - For ONNX / TensorRT, drop a `<weights>.json` export-manifest sidecar next to the
+     artifact (export/`trtexec` command, source opset, TensorRT version, builder flags).
+     The harness embeds it in `repro.weights.export_manifest` so the artifact is reproducible.
 
 3. Run the harness.
    - Example:
@@ -44,6 +47,25 @@ Use this skill only in `vision-analysis-benchmark`.
    - `pytest -q`
 
 6. If the user wants to publish the result, hand the emitted JSON off to the `vision-analysis` repo submission flow rather than inventing an upload path here.
+
+## Reproducing a published result
+
+Every emitted JSON (harness >= 2.1.0) self-describes how it was produced via the
+`repro` block, so reproducing a past number does not require guessing:
+
+1. Open the target submission JSON (in this repo's output, or under
+   `submissions/` in the `vision-analysis` repo).
+2. Install LibreYOLO at `benchmark.libreyolo_commit` and this harness at
+   `repro.harness_commit`.
+3. Fetch the eval set: the canonical `LibreYOLO/coco-val2017-mini500` for 500-image
+   runs, or full COCO val2017 for 5000-image runs.
+4. Run `repro.command` verbatim (adjust only `--coco-dir` to your local path).
+5. Confirm `repro.dataset.image_id_sha256` in the new run matches the original.
+   This proves you scored the identical images. ONNX / TensorRT reruns also need the
+   exported artifact described by `repro.weights` (hash + export manifest).
+
+If `repro.harness_dirty` was `true` on the original, the run came from an unclean
+harness tree and is not a clean pin. Treat it as unreproducible and regenerate.
 
 ## Hard rules
 
