@@ -38,6 +38,7 @@ from .models import (
     resolve_tensorrt_weights,
 )
 from .output import assemble_result
+from .provenance import build_dataset_repro, build_weights_repro, run_repro
 from .timing import SyncTimer, compute_stats, device_sync, warmup
 
 
@@ -73,6 +74,8 @@ def benchmark_model(
     limit: int | None = None,
     verbose: bool = True,
     precision: str = "fp16",
+    dataset_id: str | None = None,
+    dataset_revision: str | None = None,
 ) -> dict[str, Any]:
     """Benchmark a single model on COCO val2017.
 
@@ -98,18 +101,21 @@ def benchmark_model(
     if fmt == "pytorch":
         return _benchmark_pytorch(
             model_key, coco_dir, device, conf, iou, max_det, limit, verbose,
+            dataset_id=dataset_id, dataset_revision=dataset_revision,
         )
     if fmt == "onnx":
         if weights_dir is None:
             raise ValueError("weights_dir is required when fmt='onnx'")
         return _benchmark_onnx(
             model_key, coco_dir, weights_dir, device, conf, iou, max_det, limit, verbose,
+            dataset_id=dataset_id, dataset_revision=dataset_revision,
         )
     if fmt == "tensorrt":
         if weights_dir is None:
             raise ValueError("weights_dir is required when fmt='tensorrt'")
         return _benchmark_tensorrt(
             model_key, coco_dir, weights_dir, device, conf, iou, max_det, limit, verbose, precision,
+            dataset_id=dataset_id, dataset_revision=dataset_revision,
         )
     raise ValueError(
         f"Unknown format: {fmt!r}. Use 'pytorch', 'onnx', or 'tensorrt'."
@@ -271,6 +277,8 @@ def _benchmark_pytorch(
     max_det: int,
     limit: int | None,
     verbose: bool,
+    dataset_id: str | None = None,
+    dataset_revision: str | None = None,
 ) -> dict[str, Any]:
     coco_dir = Path(coco_dir)
 
@@ -389,6 +397,14 @@ def _benchmark_pytorch(
         _print_accuracy(coco_metrics)
 
     hw_sw = collect_hw()
+    repro = run_repro(
+        dataset=build_dataset_repro(img_ids, dataset_id, dataset_revision),
+        weights=build_weights_repro(
+            weight_file=spec.weight_file,
+            resolved_path=getattr(model, "model_path", None),
+            source="libreyolo-managed",
+        ),
+    )
     return assemble_result(
         spec=spec,
         coco_metrics=coco_metrics,
@@ -411,6 +427,7 @@ def _benchmark_pytorch(
         iou=iou,
         max_det=max_det,
         fmt="pytorch",
+        repro=repro,
     )
 
 
@@ -428,6 +445,8 @@ def _benchmark_onnx(
     max_det: int,
     limit: int | None,
     verbose: bool,
+    dataset_id: str | None = None,
+    dataset_revision: str | None = None,
 ) -> dict[str, Any]:
     coco_dir = Path(coco_dir)
 
@@ -528,6 +547,15 @@ def _benchmark_onnx(
 
     hw_sw = collect_hw()
     device_type = "gpu" if backend_device == "cuda" else "cpu"
+    repro = run_repro(
+        dataset=build_dataset_repro(img_ids, dataset_id, dataset_revision),
+        weights=build_weights_repro(
+            weight_file=Path(onnx_path).name,
+            resolved_path=onnx_path,
+            source="user-supplied",
+            export_artifact_path=onnx_path,
+        ),
+    )
     return assemble_result(
         spec=spec,
         coco_metrics=coco_metrics,
@@ -550,6 +578,7 @@ def _benchmark_onnx(
         iou=iou,
         max_det=max_det,
         fmt="onnx",
+        repro=repro,
     )
 
 
@@ -581,6 +610,8 @@ def _benchmark_tensorrt(
     limit: int | None,
     verbose: bool,
     precision: str = "fp16",
+    dataset_id: str | None = None,
+    dataset_revision: str | None = None,
 ) -> dict[str, Any]:
     coco_dir = Path(coco_dir)
 
@@ -677,6 +708,15 @@ def _benchmark_tensorrt(
         _print_accuracy(coco_metrics)
 
     hw_sw = collect_hw()
+    repro = run_repro(
+        dataset=build_dataset_repro(img_ids, dataset_id, dataset_revision),
+        weights=build_weights_repro(
+            weight_file=Path(engine_path).name,
+            resolved_path=engine_path,
+            source="user-supplied",
+            export_artifact_path=engine_path,
+        ),
+    )
     return assemble_result(
         spec=spec,
         coco_metrics=coco_metrics,
@@ -700,6 +740,7 @@ def _benchmark_tensorrt(
         max_det=max_det,
         fmt="tensorrt",
         precision=precision,
+        repro=repro,
     )
 
 
