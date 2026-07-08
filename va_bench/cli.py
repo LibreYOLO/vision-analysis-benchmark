@@ -121,6 +121,61 @@ def cmd_train_bench(args: argparse.Namespace) -> None:
     print(f"\nDone. Results in {args.output_dir}/")
 
 
+def cmd_rf100vl(args: argparse.Namespace) -> None:
+    """Evaluate models across the RF100-VL datasets and emit submissions."""
+    from .output import save_result
+    from .rf100vl import benchmark_model_rf100vl, download_datasets
+
+    if args.download:
+        download_datasets(args.data_dir, subset=args.subset, verbose=not args.quiet)
+
+    if args.all:
+        from .models import list_models
+        model_keys = list_models()
+    elif args.models:
+        model_keys = args.models
+    else:
+        if args.download:
+            print("Datasets downloaded. Specify --models or --all to evaluate.")
+            return
+        print("Error: specify --models or --all")
+        sys.exit(1)
+
+    print(f"Will evaluate {len(model_keys)} model(s) on RF100-VL")
+    print(f"  Format:       {args.format}")
+    print(f"  Data dir:     {args.data_dir}")
+    print(f"  Weights root: {args.weights_root or '(none — requires --allow-pretrained)'}")
+    print(f"  Output:       {args.output_dir}")
+
+    for key in model_keys:
+        try:
+            result = benchmark_model_rf100vl(
+                model_key=key,
+                data_dir=args.data_dir,
+                fmt=args.format,
+                weights_root=args.weights_root,
+                device=args.device,
+                conf=args.conf,
+                iou=args.iou,
+                max_det=args.max_det,
+                split=args.split,
+                limit=args.limit,
+                limit_datasets=args.limit_datasets,
+                allow_pretrained=args.allow_pretrained,
+                verbose=not args.quiet,
+            )
+            filepath = save_result(result, args.output_dir)
+            print(f"\nSaved: {filepath}")
+        except Exception as e:
+            print(f"\nError on RF100-VL for {key}: {e}")
+            if args.debug:
+                import traceback
+                traceback.print_exc()
+            continue
+
+    print(f"\nDone. Results in {args.output_dir}/")
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     """List available models."""
     from .models import MODEL_REGISTRY
@@ -237,6 +292,58 @@ def main() -> None:
     tb.add_argument("--quiet", action="store_true", help="Suppress progress output")
     tb.add_argument("--debug", action="store_true", help="Print full tracebacks on error")
 
+    # --- rf100vl ---
+    rf = subparsers.add_parser(
+        "rf100vl",
+        help="Evaluate models across the RF100-VL datasets (fine-tuned protocol)",
+    )
+    rf.add_argument("--models", nargs="+", help="Model keys (e.g. yolov9t)")
+    rf.add_argument("--all", action="store_true", help="Evaluate all models")
+    rf.add_argument(
+        "--data-dir", type=str, required=True,
+        help="Directory of RF100-VL datasets (one COCO-format sub-folder each)",
+    )
+    rf.add_argument(
+        "--download", action="store_true",
+        help="Download the datasets into --data-dir first "
+             "(pip install rf100vl + ROBOFLOW_API_KEY)",
+    )
+    rf.add_argument(
+        "--subset", choices=["rf100vl", "rf20vl", "rf100vl-fsod", "rf20vl-fsod"],
+        default="rf100vl", help="Which RF100-VL release to download (default: rf100vl)",
+    )
+    rf.add_argument(
+        "--format", choices=["pytorch", "onnx"], default="pytorch",
+        help="Backend format (default: pytorch)",
+    )
+    rf.add_argument(
+        "--weights-root", type=str, default=None,
+        help="Root of per-dataset fine-tuned checkpoints: "
+             "<root>/<dataset>/<weight file>. Datasets without one are skipped.",
+    )
+    rf.add_argument(
+        "--allow-pretrained", action="store_true",
+        help="Force COCO-pretrained registry weights when no --weights-root "
+             "(smoke tests / open-vocab only; NOT submittable)",
+    )
+    rf.add_argument("--split", type=str, default="test",
+                    help="Split to score (default: test, per RF100-VL protocol)")
+    rf.add_argument("--device", type=str, default="auto", help="Device (default: auto)")
+    rf.add_argument("--conf", type=float, default=0.001,
+                    help="Confidence threshold (default: 0.001)")
+    rf.add_argument("--iou", type=float, default=0.6,
+                    help="IoU threshold for NMS (default: 0.6)")
+    rf.add_argument("--max-det", type=int, default=300,
+                    help="Max detections per image (default: 300)")
+    rf.add_argument("--limit", type=int, default=None,
+                    help="Max images per dataset (smoke run; NOT submittable)")
+    rf.add_argument("--limit-datasets", type=int, default=None,
+                    help="Evaluate only the first N datasets (smoke run; NOT submittable)")
+    rf.add_argument("--output-dir", type=str, default="./results_rf100vl",
+                    help="Output dir for result JSONs (default: ./results_rf100vl)")
+    rf.add_argument("--quiet", action="store_true", help="Suppress progress output")
+    rf.add_argument("--debug", action="store_true", help="Print full tracebacks on error")
+
     # --- list ---
     subparsers.add_parser("list", help="List available models and specs")
 
@@ -246,6 +353,8 @@ def main() -> None:
         cmd_run(args)
     elif args.command == "train-bench":
         cmd_train_bench(args)
+    elif args.command == "rf100vl":
+        cmd_rf100vl(args)
     elif args.command == "list":
         cmd_list(args)
 

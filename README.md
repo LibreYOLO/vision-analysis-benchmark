@@ -93,6 +93,26 @@ Notes:
 - `va-bench run` is the active path that generates website data.
 - `va-bench score` is dormant and currently assumes paired `RTX 5080` and `Raspberry Pi 5` results.
 
+## RF100-VL
+
+`va-bench rf100vl` evaluates a model across the [Roboflow100-VL](https://rf100-vl.org)
+datasets (100 COCO-format detection datasets, Apache 2.0) and emits one
+submission JSON with the across-dataset mean AP50 / AP50:95 plus a per-dataset
+breakdown. RF100-VL is a *fine-tuned* benchmark: supply one checkpoint per
+dataset via `--weights-root <root>/<dataset>/<weight file>`.
+
+```bash
+# one-time dataset download (pip install rf100vl + ROBOFLOW_API_KEY)
+va-bench rf100vl --data-dir ~/rf100-vl --download --subset rf20vl
+
+# fine-tuned evaluation on the test split
+va-bench rf100vl --models yolov9t --data-dir ~/rf100-vl --weights-root ~/rf100-vl-ckpts
+```
+
+`--allow-pretrained` forces COCO-pretrained registry weights (smoke tests and
+future open-vocabulary models only); those runs are flagged and must not be
+submitted. `--limit` / `--limit-datasets` mark the result as a subset run.
+
 ## NVIDIA Note
 
 For community CUDA runs, use a clean virtualenv and avoid user-site contamination:
