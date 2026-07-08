@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vision-analysis-benchmark"
-version = "2.0.0"
+version = "2.2.0"
 description = "Benchmarking suite for object detection models — powers visionanalysis.org"
 requires-python = ">=3.10"
 license = "Apache-2.0"

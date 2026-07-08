@@ -13,26 +13,32 @@ def evaluate_coco(
     coco_gt: Any,
     predictions: list[dict],
     image_ids: list[int] | None = None,
+    iou_type: str = "bbox",
 ) -> dict[str, float]:
     """Run COCO evaluation and return all 12 metrics.
 
     Args:
         coco_gt: A pycocotools.coco.COCO ground truth object.
         predictions: List of dicts with keys:
-            image_id (int), category_id (int), bbox [x,y,w,h], score (float).
+            image_id (int), category_id (int), score (float), and
+            bbox [x,y,w,h] (iou_type="bbox") or segmentation RLE + area
+            (iou_type="segm").
         image_ids: Optional subset of image IDs to evaluate on.
+        iou_type: COCOeval IoU type — "bbox" (box mAP) or "segm" (mask mAP).
 
     Returns:
         Dict with mAP, mAP50, mAP75, mAP_small, mAP_medium, mAP_large,
         AR1, AR10, AR100, AR_small, AR_medium, AR_large.
     """
+    if iou_type not in ("bbox", "segm"):
+        raise ValueError(f"Unknown iou_type: {iou_type!r}. Use 'bbox' or 'segm'.")
     if not predictions:
         return _empty_metrics()
 
     from pycocotools.cocoeval import COCOeval
 
     coco_dt = coco_gt.loadRes(predictions)
-    coco_eval = COCOeval(coco_gt, coco_dt, "bbox")
+    coco_eval = COCOeval(coco_gt, coco_dt, iou_type)
 
     if image_ids is not None:
         coco_eval.params.imgIds = image_ids

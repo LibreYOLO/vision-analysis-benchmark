@@ -16,7 +16,8 @@ from va_bench.models import (
 
 def test_registry_has_expected_models():
     keys = list_models()
-    assert len(keys) == 70
+    # 70 detection + 13 instance segmentation (rfdetr-seg 4, dfine-seg 5, ec-seg 4)
+    assert len(keys) == 83
     for fam in (
         "damoyolo-",
         "deim-",

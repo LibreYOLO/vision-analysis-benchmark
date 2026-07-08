@@ -8,7 +8,8 @@ assuming the local editable install points at the intended branch.
 
 ## Model / Backend Support
 
-The registry covers 70 open LibreYOLO detection variants:
+The registry covers 70 open LibreYOLO detection variants plus 13 instance
+segmentation variants:
 
 | Family | Variants | PyTorch | ONNX | Notes |
 |---|---:|---:|---:|---|
@@ -28,6 +29,24 @@ The registry covers 70 open LibreYOLO detection variants:
 | RTMDet | 5 | Yes | Yes |  |
 
 YOLO-NAS is intentionally excluded because the weights are gated.
+
+### Instance Segmentation
+
+Segmentation models are separate registry keys (different checkpoints,
+`-seg` weight suffix, `task="segment"` in the spec and submission):
+
+| Family | Keys | PyTorch | ONNX | Notes |
+|---|---|---:|---:|---|
+| RF-DETR-Seg | `rfdetr-seg-{n,s,m,l}` | Yes | Untested | Per-variant native sizes (312/384/432/504). |
+| D-FINE-Seg | `dfine-seg-{n,s,m,l,x}` | Yes | Untested | ArgoHA D-FINE-seg heads (Apache-2.0). |
+| EC-Seg | `ec-seg-{s,m,l,x}` | Yes | Untested | |
+
+Scoring: the run collects boxes and per-instance masks, then evaluates
+COCO twice (bbox + segm). The submission's unprefixed `accuracy.mAP_*`
+keys carry **mask mAP** (the task's headline metric); box mAP is kept
+under `accuracy.bbox_mAP_*`. Mask upsampling to source resolution runs
+inside the model's postprocess and is included in postprocess timing;
+RLE encoding for evaluation is outside the timed region.
 
 ## Runtime / Hardware Support
 
