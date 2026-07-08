@@ -78,6 +78,49 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"\nDone. Results in {args.output_dir}/")
 
 
+def cmd_train_bench(args: argparse.Namespace) -> None:
+    """Measure training throughput (img/s -> sec/epoch -> $/epoch) per config."""
+    from .train_throughput import benchmark_train_throughput, save_train_result
+
+    if args.all:
+        from .models import list_models
+        model_keys = list_models()
+    elif args.models:
+        model_keys = args.models
+    else:
+        print("Error: specify --models or --all")
+        sys.exit(1)
+
+    for key in model_keys:
+        try:
+            result = benchmark_train_throughput(
+                key,
+                data=args.data,
+                device=args.device,
+                batch=args.batch,
+                imgsz=args.imgsz,
+                warmup_epochs=args.warmup_epochs,
+                measure_epochs=args.measure_epochs,
+                workers=args.workers,
+                amp=args.amp,
+                nbs=args.nbs,
+                dollars_per_hour=args.dollars_per_hour,
+                rig_label=args.rig_label,
+                provider=args.provider,
+                verbose=not args.quiet,
+            )
+            path = save_train_result(result, args.output_dir)
+            print(f"Saved: {path}")
+        except Exception as e:
+            print(f"\nError train-benchmarking {key}: {e}")
+            if args.debug:
+                import traceback
+                traceback.print_exc()
+            continue
+
+    print(f"\nDone. Results in {args.output_dir}/")
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     """List available models."""
     from .models import MODEL_REGISTRY
@@ -161,6 +204,39 @@ def main() -> None:
     run_parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
     run_parser.add_argument("--debug", action="store_true", help="Print full tracebacks on error")
 
+    # --- train-bench ---
+    tb = subparsers.add_parser(
+        "train-bench",
+        help="Benchmark training throughput (img/s, $/epoch) on a COCO subset",
+    )
+    tb.add_argument("--models", nargs="+", help="Model keys (e.g. yolov9t yolov9s)")
+    tb.add_argument("--all", action="store_true", help="Benchmark all models")
+    tb.add_argument("--data", type=str, default="coco1000",
+                    help="Dataset yaml/name (default: coco1000)")
+    tb.add_argument("--device", type=str, default="auto", help="Device (default: auto)")
+    tb.add_argument("--batch", type=int, default=16, help="Micro-batch (default: 16)")
+    tb.add_argument("--imgsz", type=int, default=None,
+                    help="Input size (default: model's native size)")
+    tb.add_argument("--warmup-epochs", type=int, default=1,
+                    help="Leading epochs discarded as warmup (default: 1)")
+    tb.add_argument("--measure-epochs", type=int, default=3,
+                    help="Steady-state epochs averaged (default: 3)")
+    tb.add_argument("--workers", type=int, default=8, help="Dataloader workers (default: 8)")
+    tb.add_argument("--amp", action="store_true",
+                    help="Use the family's AMP path (native fast precision)")
+    tb.add_argument("--nbs", type=int, default=None,
+                    help="Effective batch for gradient accumulation (default: none)")
+    tb.add_argument("--dollars-per-hour", type=float, default=None,
+                    help="Rental price of this config; enables $/epoch projection")
+    tb.add_argument("--rig-label", type=str, default=None,
+                    help="Label for the GPU+host box, e.g. home-5070ti")
+    tb.add_argument("--provider", type=str, default="local",
+                    help="Where it ran (local, modal, runpod, ...)")
+    tb.add_argument("--output-dir", type=str, default="./results_train",
+                    help="Output dir for result JSONs (default: ./results_train)")
+    tb.add_argument("--quiet", action="store_true", help="Suppress progress output")
+    tb.add_argument("--debug", action="store_true", help="Print full tracebacks on error")
+
     # --- list ---
     subparsers.add_parser("list", help="List available models and specs")
 
@@ -168,6 +244,8 @@ def main() -> None:
 
     if args.command == "run":
         cmd_run(args)
+    elif args.command == "train-bench":
+        cmd_train_bench(args)
     elif args.command == "list":
         cmd_list(args)
 
