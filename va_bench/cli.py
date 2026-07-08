@@ -68,16 +68,16 @@ def cmd_list(args: argparse.Namespace) -> None:
     """List available models."""
     from .models import MODEL_REGISTRY
 
-    print(f"\n{'Key':<16} {'Display Name':<16} {'Family':<10} {'Params(M)':<10} "
-          f"{'GFLOPs':<8} {'Input':<6} {'Weights'}")
-    print("-" * 90)
+    print(f"\n{'Key':<16} {'Display Name':<16} {'Family':<10} {'Task':<8} "
+          f"{'Params(M)':<10} {'GFLOPs':<8} {'Input':<6} {'Weights'}")
+    print("-" * 98)
 
     for key in sorted(MODEL_REGISTRY.keys()):
         s = MODEL_REGISTRY[key]
         params = f"{s.paper_params_m:.1f}" if s.paper_params_m > 0 else "?"
         flops = f"{s.paper_flops_g:.1f}" if s.paper_flops_g > 0 else "?"
-        print(f"{s.key:<16} {s.display_name:<16} {s.family:<10} {params:<10} "
-              f"{flops:<8} {s.input_size:<6} {s.weight_file}")
+        print(f"{s.key:<16} {s.display_name:<16} {s.family:<10} {s.task:<8} "
+              f"{params:<10} {flops:<8} {s.input_size:<6} {s.weight_file}")
 
     print(f"\n{len(MODEL_REGISTRY)} models available")
 

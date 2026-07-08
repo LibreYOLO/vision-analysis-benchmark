@@ -58,6 +58,45 @@ def detect_hardware_id(hardware: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _accuracy_block(
+    coco_metrics: dict[str, float],
+    mask_metrics: dict[str, float] | None,
+) -> dict[str, float]:
+    """Build the submission accuracy block.
+
+    The unprefixed keys always carry the task's headline metric: box mAP for
+    detection, mask mAP for instance segmentation. Seg entries additionally
+    record their box mAP under bbox_-prefixed keys, so nothing is discarded
+    and every downstream consumer (leaderboard, pareto, badges) can keep
+    reading the unprefixed keys without knowing about tasks.
+    """
+    headline = mask_metrics if mask_metrics is not None else coco_metrics
+    block = {
+        "mAP_50_95": headline["mAP"],
+        "mAP_50": headline["mAP50"],
+        "mAP_75": headline["mAP75"],
+        "mAP_small": headline["mAP_small"],
+        "mAP_medium": headline["mAP_medium"],
+        "mAP_large": headline["mAP_large"],
+        "AR1": headline["AR1"],
+        "AR10": headline["AR10"],
+        "AR100": headline["AR100"],
+        "AR_small": headline["AR_small"],
+        "AR_medium": headline["AR_medium"],
+        "AR_large": headline["AR_large"],
+    }
+    if mask_metrics is not None:
+        block.update({
+            "bbox_mAP_50_95": coco_metrics["mAP"],
+            "bbox_mAP_50": coco_metrics["mAP50"],
+            "bbox_mAP_75": coco_metrics["mAP75"],
+            "bbox_mAP_small": coco_metrics["mAP_small"],
+            "bbox_mAP_medium": coco_metrics["mAP_medium"],
+            "bbox_mAP_large": coco_metrics["mAP_large"],
+        })
+    return block
+
+
 def assemble_result(
     spec: ModelSpec,
     coco_metrics: dict[str, float],
@@ -80,8 +119,19 @@ def assemble_result(
     iou: float,
     max_det: int,
     fmt: str = "pytorch",
+    mask_metrics: dict[str, float] | None = None,
 ) -> dict[str, Any]:
-    """Assemble the final result dict matching the website's RawBenchmark schema."""
+    """Assemble the final result dict matching the website's RawBenchmark schema.
+
+    For segment-task models pass ``mask_metrics`` (COCO segm eval); it becomes
+    the headline accuracy and ``coco_metrics`` (box eval) is kept under
+    bbox_-prefixed keys.
+    """
+    if (spec.task == "segment") != (mask_metrics is not None):
+        raise ValueError(
+            f"mask_metrics must be provided exactly when spec.task == 'segment' "
+            f"(got task={spec.task!r}, mask_metrics={'set' if mask_metrics is not None else 'None'})"
+        )
     gflops = spec.paper_flops_g if spec.paper_flops_g > 0 else 0.0
     params_m = measured_params_m if measured_params_m > 0 else spec.paper_params_m
     now = _utc_now()
@@ -103,6 +153,7 @@ def assemble_result(
             "name": spec.display_name.lower().replace(" ", ""),
             "family": spec.family,
             "variant": spec.variant,
+            "task": spec.task,
             "source": "libreyolo",
             "weights": spec.weight_file,
             "input_size": actual_input_size,
@@ -124,20 +175,7 @@ def assemble_result(
             "id": hardware_id,
         },
         "software": software,
-        "accuracy": {
-            "mAP_50_95": coco_metrics["mAP"],
-            "mAP_50": coco_metrics["mAP50"],
-            "mAP_75": coco_metrics["mAP75"],
-            "mAP_small": coco_metrics["mAP_small"],
-            "mAP_medium": coco_metrics["mAP_medium"],
-            "mAP_large": coco_metrics["mAP_large"],
-            "AR1": coco_metrics["AR1"],
-            "AR10": coco_metrics["AR10"],
-            "AR100": coco_metrics["AR100"],
-            "AR_small": coco_metrics["AR_small"],
-            "AR_medium": coco_metrics["AR_medium"],
-            "AR_large": coco_metrics["AR_large"],
-        },
+        "accuracy": _accuracy_block(coco_metrics, mask_metrics),
         "timing": {
             "batch_size": 1,
             "num_images": num_images,

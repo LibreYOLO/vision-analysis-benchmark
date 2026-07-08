@@ -8,6 +8,13 @@ prediction collection, and memory tracking. Supports two backends:
   timing (preprocess / inference / postprocess) and VRAM stats on CUDA.
 * ``onnx``     — LibreYOLO's ONNX Runtime backend. Treated as a black
   box: total wall time per image, no phase split, no VRAM stats.
+
+Detection models (spec.task == "detect") are scored with box mAP.
+Instance segmentation models (spec.task == "segment") additionally
+collect per-instance RLE masks and are scored with mask mAP (headline)
+plus box mAP. Mask upsampling to source resolution happens inside the
+model's postprocess step, so it is included in postprocess timing;
+RLE encoding for evaluation happens outside the timed region.
 """
 
 from __future__ import annotations
@@ -160,6 +167,67 @@ def _append_predictions(
         })
 
 
+def _append_mask_predictions(
+    mask_predictions: list[dict],
+    masks: Any,
+    scores: Any,
+    classes: Any,
+    img_id: int,
+) -> None:
+    """Append per-image instance masks as COCO RLE segm predictions.
+
+    Kept as a separate list without ``bbox`` keys: pycocotools' ``loadRes``
+    prefers the bbox branch when both are present and would overwrite each
+    instance's area with its box area, skewing mask AP_small/medium/large.
+    """
+    import numpy as np
+    from pycocotools import mask as mask_utils
+
+    if isinstance(masks, torch.Tensor):
+        masks = masks.cpu().numpy()
+    if isinstance(scores, torch.Tensor):
+        scores = scores.cpu().numpy()
+    if isinstance(classes, torch.Tensor):
+        classes = classes.cpu().numpy()
+
+    masks = np.asarray(masks)
+    if masks.ndim != 3:
+        raise ValueError(f"Expected masks of shape (N, H, W), got {masks.shape}")
+
+    # Encode all instances at once: pycocotools wants Fortran-order (H, W, N).
+    rles = mask_utils.encode(
+        np.asfortranarray(masks.transpose(1, 2, 0).astype(np.uint8))
+    )
+    for rle, score, cls in zip(rles, scores, classes):
+        rle["counts"] = rle["counts"].decode("utf-8")
+        cls_int = int(cls)
+        cat_id = (
+            COCO_80_TO_91[cls_int] if cls_int < len(COCO_80_TO_91) else cls_int + 1
+        )
+        mask_predictions.append({
+            "image_id": img_id,
+            "category_id": cat_id,
+            "segmentation": rle,
+            "area": float(mask_utils.area(rle)),
+            "score": float(score),
+        })
+
+
+def _extract_masks_or_fail(detections_or_masks: Any, model_key: str) -> Any:
+    """Return per-instance masks for a segment-task run, or fail loud.
+
+    Never fall back to publishing box-only numbers under a segmentation
+    model id — a missing mask output means the build/export is broken.
+    """
+    if detections_or_masks is None:
+        raise RuntimeError(
+            f"{model_key} is registered as task='segment' but the model "
+            "returned no masks. Refusing to score a segmentation entry "
+            "from boxes only — check the LibreYOLO build / export."
+        )
+    return detections_or_masks
+
+
 def _print_timing_summary(
     verbose: bool,
     n_images: int,
@@ -297,12 +365,15 @@ def _benchmark_pytorch(
     if actual_device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(actual_device)
 
+    is_seg = spec.task == "segment"
+
     timer = SyncTimer(actual_device)
     pre_times: list[float] = []
     inf_times: list[float] = []
     post_times: list[float] = []
     total_times: list[float] = []
     predictions: list[dict] = []
+    mask_predictions: list[dict] = []
 
     pbar = tqdm(img_ids, desc="Benchmarking", disable=not verbose)
     for img_id in pbar:
@@ -342,6 +413,14 @@ def _benchmark_pytorch(
                 detections["classes"],
                 img_id,
             )
+            if is_seg:
+                _append_mask_predictions(
+                    mask_predictions,
+                    _extract_masks_or_fail(detections.get("masks"), spec.key),
+                    detections["scores"],
+                    detections["classes"],
+                    img_id,
+                )
 
         if verbose:
             pbar.set_postfix({"ms": f"{timer.total_ms():.1f}", "dets": len(predictions)})
@@ -369,14 +448,22 @@ def _benchmark_pytorch(
     if verbose:
         print(f"\nCOCO evaluation ({len(predictions)} detections)...")
     coco_metrics = evaluate_coco(coco_gt, predictions, image_ids=img_ids)
+    mask_metrics = None
+    if is_seg:
+        mask_metrics = evaluate_coco(
+            coco_gt, mask_predictions, image_ids=img_ids, iou_type="segm",
+        )
 
     if verbose:
-        _print_accuracy(coco_metrics)
+        _print_accuracy(coco_metrics, label="box " if is_seg else "")
+        if mask_metrics is not None:
+            _print_accuracy(mask_metrics, label="mask ")
 
     hw_sw = collect_hw()
     return assemble_result(
         spec=spec,
         coco_metrics=coco_metrics,
+        mask_metrics=mask_metrics,
         total_stats=total_stats,
         preprocess_ms=round(float(np.mean(pre_arr)), 3),
         inference_ms=round(float(np.mean(inf_arr)), 3),
@@ -459,8 +546,11 @@ def _benchmark_onnx(
 
     rss_before = _get_rss_mb()
 
+    is_seg = spec.task == "segment"
+
     total_times: list[float] = []
     predictions: list[dict] = []
+    mask_predictions: list[dict] = []
 
     import time
     pbar = tqdm(img_ids, desc="Benchmarking", disable=not verbose)
@@ -484,6 +574,18 @@ def _benchmark_onnx(
                 result.boxes.cls,
                 img_id,
             )
+            if is_seg:
+                masks = _extract_masks_or_fail(
+                    getattr(result.masks, "data", None) if result.masks is not None else None,
+                    spec.key,
+                )
+                _append_mask_predictions(
+                    mask_predictions,
+                    masks,
+                    result.boxes.conf,
+                    result.boxes.cls,
+                    img_id,
+                )
 
         if verbose:
             pbar.set_postfix({
@@ -507,15 +609,23 @@ def _benchmark_onnx(
     if verbose:
         print(f"\nCOCO evaluation ({len(predictions)} detections)...")
     coco_metrics = evaluate_coco(coco_gt, predictions, image_ids=img_ids)
+    mask_metrics = None
+    if is_seg:
+        mask_metrics = evaluate_coco(
+            coco_gt, mask_predictions, image_ids=img_ids, iou_type="segm",
+        )
 
     if verbose:
-        _print_accuracy(coco_metrics)
+        _print_accuracy(coco_metrics, label="box " if is_seg else "")
+        if mask_metrics is not None:
+            _print_accuracy(mask_metrics, label="mask ")
 
     hw_sw = collect_hw()
     device_type = "gpu" if backend_device == "cuda" else "cpu"
     return assemble_result(
         spec=spec,
         coco_metrics=coco_metrics,
+        mask_metrics=mask_metrics,
         total_stats=total_stats,
         preprocess_ms=None,
         inference_ms=None,
@@ -551,10 +661,10 @@ def _onnx_warmup(backend: Any, n_iters: int) -> None:
             break
 
 
-def _print_accuracy(coco_metrics: dict[str, float]) -> None:
-    print(f"  mAP@50-95: {coco_metrics['mAP']:.4f}")
-    print(f"  mAP@50:    {coco_metrics['mAP50']:.4f}")
-    print(f"  mAP@75:    {coco_metrics['mAP75']:.4f}")
-    print(f"  mAP_small: {coco_metrics['mAP_small']:.4f}")
-    print(f"  mAP_med:   {coco_metrics['mAP_medium']:.4f}")
-    print(f"  mAP_large: {coco_metrics['mAP_large']:.4f}")
+def _print_accuracy(coco_metrics: dict[str, float], label: str = "") -> None:
+    print(f"  {label}mAP@50-95: {coco_metrics['mAP']:.4f}")
+    print(f"  {label}mAP@50:    {coco_metrics['mAP50']:.4f}")
+    print(f"  {label}mAP@75:    {coco_metrics['mAP75']:.4f}")
+    print(f"  {label}mAP_small: {coco_metrics['mAP_small']:.4f}")
+    print(f"  {label}mAP_med:   {coco_metrics['mAP_medium']:.4f}")
+    print(f"  {label}mAP_large: {coco_metrics['mAP_large']:.4f}")

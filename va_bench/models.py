@@ -26,6 +26,9 @@ class ModelSpec:
     input_size: int
     paper_params_m: float
     paper_flops_g: float
+    # Task the weights were trained for. "detect" rows report box mAP;
+    # "segment" rows report mask mAP as the headline metric (plus box mAP).
+    task: str = "detect"
 
 
 # Specs sourced from vision-analysis website models.json + LibreYOLO model classes.
@@ -146,6 +149,34 @@ _register(
     ModelSpec("rtmdet-m", "RTMDet-M", "rtmdet", "m", "LibreRTMDetm.pt", "m", 640, 0.0, 0.0),
     ModelSpec("rtmdet-l", "RTMDet-L", "rtmdet", "l", "LibreRTMDetl.pt", "l", 640, 0.0, 0.0),
     ModelSpec("rtmdet-x", "RTMDet-X", "rtmdet", "x", "LibreRTMDetx.pt", "x", 640, 0.0, 0.0),
+)
+
+# ---------------------------------------------------------------------------
+# Instance segmentation. Separate registry keys because seg weights are
+# different checkpoints (-seg suffix, auto-downloaded from HF like detection).
+# family stays the base family so site-side family filters group det + seg
+# variants together; task="segment" is the discriminator.
+#
+# input_size mirrors each family's SEG_INPUT_SIZES in LibreYOLO (RF-DETR seg
+# uses smaller per-variant native sizes than its detect checkpoints).
+# ---------------------------------------------------------------------------
+_register(
+    # --- RF-DETR seg (4 open variants) ---
+    ModelSpec("rfdetr-seg-n", "RF-DETR-Seg-N", "rfdetr", "n", "LibreRFDETRn-seg.pt", "n", 312, 0.0, 0.0, task="segment"),
+    ModelSpec("rfdetr-seg-s", "RF-DETR-Seg-S", "rfdetr", "s", "LibreRFDETRs-seg.pt", "s", 384, 0.0, 0.0, task="segment"),
+    ModelSpec("rfdetr-seg-m", "RF-DETR-Seg-M", "rfdetr", "m", "LibreRFDETRm-seg.pt", "m", 432, 0.0, 0.0, task="segment"),
+    ModelSpec("rfdetr-seg-l", "RF-DETR-Seg-L", "rfdetr", "l", "LibreRFDETRl-seg.pt", "l", 504, 0.0, 0.0, task="segment"),
+    # --- D-FINE seg (5 variants, ArgoHA/D-FINE-seg heads, Apache-2.0) ---
+    ModelSpec("dfine-seg-n", "D-FINE-Seg-N", "dfine", "n", "LibreDFINEn-seg.pt", "n", 640, 0.0, 0.0, task="segment"),
+    ModelSpec("dfine-seg-s", "D-FINE-Seg-S", "dfine", "s", "LibreDFINEs-seg.pt", "s", 640, 0.0, 0.0, task="segment"),
+    ModelSpec("dfine-seg-m", "D-FINE-Seg-M", "dfine", "m", "LibreDFINEm-seg.pt", "m", 640, 0.0, 0.0, task="segment"),
+    ModelSpec("dfine-seg-l", "D-FINE-Seg-L", "dfine", "l", "LibreDFINEl-seg.pt", "l", 640, 0.0, 0.0, task="segment"),
+    ModelSpec("dfine-seg-x", "D-FINE-Seg-X", "dfine", "x", "LibreDFINEx-seg.pt", "x", 640, 0.0, 0.0, task="segment"),
+    # --- EC / EdgeCrafter seg (4 variants) ---
+    ModelSpec("ec-seg-s", "EC-Seg-S", "ec", "s", "LibreECs-seg.pt", "s", 640, 0.0, 0.0, task="segment"),
+    ModelSpec("ec-seg-m", "EC-Seg-M", "ec", "m", "LibreECm-seg.pt", "m", 640, 0.0, 0.0, task="segment"),
+    ModelSpec("ec-seg-l", "EC-Seg-L", "ec", "l", "LibreECl-seg.pt", "l", 640, 0.0, 0.0, task="segment"),
+    ModelSpec("ec-seg-x", "EC-Seg-X", "ec", "x", "LibreECx-seg.pt", "x", 640, 0.0, 0.0, task="segment"),
 )
 
 
