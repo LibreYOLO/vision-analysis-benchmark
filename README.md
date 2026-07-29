@@ -102,8 +102,16 @@ breakdown. RF100-VL is a *fine-tuned* benchmark: supply one checkpoint per
 dataset via `--weights-root <root>/<dataset>/<weight file>`.
 
 ```bash
-# one-time dataset download (pip install rf100vl + ROBOFLOW_API_KEY)
+# one-time dataset download (pip install '.[rf100vl]' + ROBOFLOW_API_KEY)
+# This writes versions.json before downloading and replays those exact ids.
 va-bench rf100vl --data-dir ~/rf100-vl --download --subset rf20vl
+
+# resumable one-dataset-per-process training on GPUs 0 and 1
+va-bench rf100vl-train \
+  --model yolov9s \
+  --data-dir ~/rf100-vl \
+  --weights-root ~/rf100-vl-ckpts \
+  --gpus 0,1
 
 # fine-tuned evaluation on the test split
 va-bench rf100vl --models yolov9t --data-dir ~/rf100-vl --weights-root ~/rf100-vl-ckpts
@@ -112,6 +120,19 @@ va-bench rf100vl --models yolov9t --data-dir ~/rf100-vl --weights-root ~/rf100-v
 `--allow-pretrained` forces COCO-pretrained registry weights (smoke tests and
 future open-vocabulary models only); those runs are flagged and must not be
 submitted. `--limit` / `--limit-datasets` mark the result as a subset run.
+Evaluation writes one atomic result file per dataset and reuses only files
+whose dataset, checkpoint, recipe, version, and protocol fingerprint matches.
+Submissions remain raw: they contain the overall unweighted mean and all 100
+dataset records, but no derived domain means.
+
+`rf100vl-train` uses the versioned family recipes under
+`va_bench/recipes/rf100vl/`. The fixed skeleton is 100 epochs, effective batch
+16, validation every epoch, best-valid AP50:95 selection, EMA, no early
+stopping, seed 0, and FP32 by default. Campaign status changes are atomic.
+Interrupted runs resume only from an epoch-boundary `last.pt` with the same
+physical-batch, accumulation, recipe, and dataset-version signature. Failures,
+timeouts, logs, and a machine-readable rerun list live under
+`<weights-root>/.state/<model>/`.
 
 ## NVIDIA Note
 

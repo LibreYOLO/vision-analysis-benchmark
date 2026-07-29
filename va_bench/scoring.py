@@ -21,7 +21,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 SCORE_METRICS = [
     "mAP_50",
     "mAP_50_95",

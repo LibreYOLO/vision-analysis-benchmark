@@ -21,6 +21,7 @@ that rented offering).
 
 from __future__ import annotations
 
+import hashlib
 import statistics
 import subprocess
 import threading
@@ -35,6 +36,7 @@ from . import __version__
 from .hardware import collect_all
 from .models import get_spec, load_model
 from .output import detect_hardware_id
+from .provenance import build_weights_repro, run_repro
 
 # COCO train2017 size — the projection target for "$/epoch of full COCO".
 COCO_FULL_TRAIN_IMAGES = 118_287
@@ -64,9 +66,10 @@ def _gpu_util_sampler(stop: threading.Event, out: list[int], interval: float = 0
     while not stop.is_set():
         try:
             res = subprocess.run(
-                ["nvidia-smi", "--query-gpu=utilization.gpu",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=2,
+                ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True,
+                timeout=2,
             )
             for tok in res.stdout.split():
                 if tok.strip().isdigit():
@@ -77,13 +80,31 @@ def _gpu_util_sampler(stop: threading.Event, out: list[int], interval: float = 0
         stop.wait(interval)
 
 
-def _count_train_images(data: str) -> int:
-    """Resolve the dataset (auto-downloading if needed) and count train images."""
+def _train_image_files(data: str) -> list[str]:
+    """Resolve the dataset and return the exact training image list."""
     from libreyolo.data import load_data_config
 
     cfg = load_data_config(data, autodownload=True, allow_scripts=False)
-    files = cfg.get("train_img_files") or []
-    return len(files)
+    return [str(path) for path in (cfg.get("train_img_files") or [])]
+
+
+def _count_train_images(data: str) -> int:
+    """Backward-compatible count helper used by callers and tests."""
+    return len(_train_image_files(data))
+
+
+def _dataset_id(data: str) -> str:
+    """Derive a truthful local dataset label from a name or data YAML path."""
+    path = Path(data)
+    if path.exists() and path.name.lower() in {"data.yaml", "data.yml"}:
+        return path.parent.name
+    return path.stem or str(data)
+
+
+def _image_name_sha256(files: list[str]) -> str:
+    """Fingerprint the ordered-independent set of training image names."""
+    canonical = "\n".join(sorted(Path(path).name for path in files))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def benchmark_train_throughput(
@@ -97,6 +118,7 @@ def benchmark_train_throughput(
     measure_epochs: int = 3,
     workers: int = 8,
     amp: bool = False,
+    amp_dtype: str = "float16",
     nbs: int | None = None,
     dollars_per_hour: float | None = None,
     rig_label: str | None = None,
@@ -116,7 +138,8 @@ def benchmark_train_throughput(
             thermal ramp).
         measure_epochs: Steady-state epochs averaged for the reported img/s.
         workers: Dataloader workers (part of the measured configuration).
-        amp: Use the family's AMP path (its native fast precision) vs fp32.
+        amp: Use CUDA AMP instead of fp32.
+        amp_dtype: CUDA AMP dtype, ``float16`` or ``bfloat16``.
         nbs: Nominal/effective batch for gradient accumulation. None = no accum.
         dollars_per_hour: Rental price of this configuration; enables $/epoch.
         rig_label: Human label for the (GPU + host) box, e.g. "home-5070ti".
@@ -124,23 +147,36 @@ def benchmark_train_throughput(
         project_dir: Where the trainer writes its (discarded) run artifacts.
     """
     spec = get_spec(model_key)
+    if amp_dtype not in {"float16", "bfloat16"}:
+        raise ValueError(f"amp_dtype must be 'float16' or 'bfloat16', got {amp_dtype!r}")
     imgsz = imgsz or spec.input_size
     effective_batch = nbs if nbs else batch
     accum = max(1, round(effective_batch / batch)) if nbs else 1
 
-    n_images = _count_train_images(data)
-    steps_per_epoch = n_images // batch  # create_dataloader uses drop_last=True
-    if steps_per_epoch < 1:
-        raise ValueError(
-            f"batch={batch} exceeds dataset size ({n_images}); pick a smaller batch."
-        )
-    images_per_epoch = steps_per_epoch * batch
+    train_image_files = _train_image_files(data)
+    n_images = len(train_image_files)
+    dataset_id = _dataset_id(data)
+    if n_images < 1:
+        raise ValueError("Training dataset contains no images.")
+    # LibreYOLO drops the final partial batch only when at least one full batch
+    # exists. Tiny smoke datasets therefore still produce one partial batch.
+    if n_images < batch:
+        steps_per_epoch = 1
+        images_per_epoch = n_images
+    else:
+        steps_per_epoch = n_images // batch
+        images_per_epoch = steps_per_epoch * batch
 
     model, _ = load_model(model_key, device=device)
 
     use_cuda = torch.cuda.is_available() and str(device).lower() != "cpu"
     dev_type = "cuda" if use_cuda else "cpu"
     train_device = "0" if use_cuda else "cpu"
+    if amp and not use_cuda:
+        raise ValueError("amp=True requires a CUDA device for a truthful benchmark")
+    if amp and amp_dtype == "bfloat16" and not torch.cuda.is_bf16_supported():
+        raise ValueError("amp_dtype='bfloat16' is not supported by this CUDA device")
+    precision = amp_dtype if amp else "fp32"
     if use_cuda:
         torch.cuda.reset_peak_memory_stats()
 
@@ -151,16 +187,16 @@ def benchmark_train_throughput(
     collector = _EpochTimeCollector()
     stop = threading.Event()
     util_samples: list[int] = []
-    sampler = threading.Thread(
-        target=_gpu_util_sampler, args=(stop, util_samples), daemon=True
-    )
+    sampler = threading.Thread(target=_gpu_util_sampler, args=(stop, util_samples), daemon=True)
 
     total_epochs = warmup_epochs + measure_epochs
     if verbose:
-        print(f"[train-bench] {model_key}: {total_epochs} epochs "
-              f"({warmup_epochs} warmup + {measure_epochs} measured), "
-              f"batch={batch} imgsz={imgsz} amp={amp} "
-              f"steps/epoch={steps_per_epoch} on {n_images} images")
+        print(
+            f"[train-bench] {model_key}: {total_epochs} epochs "
+            f"({warmup_epochs} warmup + {measure_epochs} measured), "
+            f"batch={batch} imgsz={imgsz} precision={precision} "
+            f"steps/epoch={steps_per_epoch} on {n_images} images"
+        )
 
     train_kwargs: dict[str, Any] = dict(
         data=data,
@@ -170,11 +206,12 @@ def benchmark_train_throughput(
         device=train_device,
         workers=workers,
         amp=amp,
+        amp_dtype=amp_dtype,
         seed=0,
-        no_aug_epochs=0,        # keep aug regime constant across measured epochs
-        eval_interval=10 ** 9,  # never validate during the benchmark
-        save_period=10 ** 9,    # no periodic checkpoints
-        patience=0,             # no early-stop validation pass
+        no_aug_epochs=0,  # keep aug regime constant across measured epochs
+        eval_interval=10**9,  # never validate during the benchmark
+        save_period=10**9,  # no periodic checkpoints
+        patience=0,  # no early-stop validation pass
         save_plots=False,
         project=str(project_dir),
         name=f"trainbench_{model_key}",
@@ -190,6 +227,7 @@ def benchmark_train_throughput(
         model.train(**train_kwargs)
     finally:
         stop.set()
+        sampler.join(timeout=2.0)
         wall = time.time() - t0
 
     epoch_seconds = collector.epoch_seconds
@@ -198,26 +236,17 @@ def benchmark_train_throughput(
         warmup_epochs = min(warmup_epochs, max(0, len(epoch_seconds) - 1))
     measured = epoch_seconds[warmup_epochs:]
     if not measured:
-        raise RuntimeError(
-            f"No measured epochs captured (got {len(epoch_seconds)} epoch times)."
-        )
+        raise RuntimeError(f"No measured epochs captured (got {len(epoch_seconds)} epoch times).")
 
     per_epoch_img_s = [images_per_epoch / s for s in measured]
     img_s_median = statistics.median(per_epoch_img_s)
     img_s_mean = statistics.fmean(per_epoch_img_s)
 
     sec_per_full_epoch = COCO_FULL_TRAIN_IMAGES / img_s_median
-    dollars_per_epoch = (
-        sec_per_full_epoch / 3600.0 * dollars_per_hour
-        if dollars_per_hour else None
-    )
+    dollars_per_epoch = sec_per_full_epoch / 3600.0 * dollars_per_hour if dollars_per_hour else None
 
-    peak_vram_mb = (
-        torch.cuda.max_memory_allocated() / 1e6 if use_cuda else None
-    )
-    gpu_util_mean = (
-        round(statistics.fmean(util_samples), 1) if util_samples else None
-    )
+    peak_vram_mb = torch.cuda.max_memory_allocated() / 1e6 if use_cuda else None
+    gpu_util_mean = round(statistics.fmean(util_samples), 1) if util_samples else None
 
     meta = collect_all()
     hardware = meta["hardware"]
@@ -227,12 +256,26 @@ def benchmark_train_throughput(
 
     now = datetime.now(timezone.utc)
     created_at = now.isoformat().replace("+00:00", "Z")
+    projection_valid = dataset_id.lower() == "coco1000"
+    repro = run_repro(
+        dataset={
+            "id": dataset_id,
+            "source": str(data),
+            "num_images": n_images,
+            "image_id_sha256": _image_name_sha256(train_image_files),
+            "identity_scheme": "sha256(sorted training image filenames)",
+        },
+        weights=build_weights_repro(
+            weight_file=spec.weight_file,
+            resolved_path=getattr(model, "model_path", None),
+            source="libreyolo-managed",
+        ),
+    )
 
     result = {
         "schema_version": "va.train.v1",
         "submission_id": (
-            f"{model_key}-train-{provider}-{hardware_id}-"
-            f"{now.strftime('%Y%m%dT%H%M%SZ')}"
+            f"{model_key}-train-{provider}-{hardware_id}-{now.strftime('%Y%m%dT%H%M%SZ')}"
         ),
         "created_at": created_at,
         "benchmark": {
@@ -241,6 +284,7 @@ def benchmark_train_throughput(
             "mode": "train-throughput",
             "libreyolo_version": software.get("libreyolo", "unknown"),
             "libreyolo_commit": software.get("libreyolo_commit", "unknown"),
+            "libreyolo_dirty": software.get("libreyolo_dirty"),
         },
         "model": {
             "id": spec.key,
@@ -249,11 +293,12 @@ def benchmark_train_throughput(
             "input_size": imgsz,
         },
         "dataset": {
-            "id": "coco1000",
-            "source": "COCO train2017 (1000-image subset, seed=0)",
+            "id": dataset_id,
+            "source": str(data),
             "benchmark_images": n_images,
             "projection_target": "coco2017 train",
             "projection_images": COCO_FULL_TRAIN_IMAGES,
+            "projection_valid": projection_valid,
         },
         "config": {
             "micro_batch": batch,
@@ -261,7 +306,9 @@ def benchmark_train_throughput(
             "accum_steps": accum,
             "input_size": imgsz,
             "amp": amp,
-            "precision": "amp" if amp else "fp32",
+            "amp_dtype": amp_dtype if amp else None,
+            "precision": precision,
+            "seed": 0,
             "workers": workers,
             "warmup_epochs": warmup_epochs,
             "measure_epochs": len(measured),
@@ -286,28 +333,40 @@ def benchmark_train_throughput(
             "sec_per_full_epoch": round(sec_per_full_epoch, 1),
             "hours_per_full_epoch": round(sec_per_full_epoch / 3600.0, 4),
             "dollars_per_hour": dollars_per_hour,
-            "dollars_per_epoch": (
-                round(dollars_per_epoch, 4) if dollars_per_epoch else None
+            "dollars_per_epoch": (round(dollars_per_epoch, 4) if dollars_per_epoch else None),
+            "projection_valid": projection_valid,
+            "projection_note": (
+                None
+                if projection_valid
+                else "Smoke dataset is not coco1000; do not publish the full-COCO projection."
             ),
         },
         "runtime": {
             "format": "pytorch-train",
-            "precision": "amp" if amp else "fp32",
+            "precision": precision,
             "provider": provider,
             "device": dev_type,
         },
+        "repro": repro,
     }
 
     if verbose:
         m = result["measurement"]
         d = result["derived"]
-        print(f"[train-bench] {model_key}: {m['img_per_s_median']} img/s "
-              f"(min {m['img_per_s_min']} / max {m['img_per_s_max']}), "
-              f"util {m['gpu_util_mean_pct']}%, peak VRAM {m['peak_vram_mb']} MB")
-        print(f"[train-bench] projected full-COCO epoch: "
-              f"{d['hours_per_full_epoch']} h"
-              + (f" = ${d['dollars_per_epoch']}/epoch @ ${d['dollars_per_hour']}/h"
-                 if d['dollars_per_epoch'] else ""))
+        print(
+            f"[train-bench] {model_key}: {m['img_per_s_median']} img/s "
+            f"(min {m['img_per_s_min']} / max {m['img_per_s_max']}), "
+            f"util {m['gpu_util_mean_pct']}%, peak VRAM {m['peak_vram_mb']} MB"
+        )
+        print(
+            f"[train-bench] projected full-COCO epoch: "
+            f"{d['hours_per_full_epoch']} h"
+            + (
+                f" = ${d['dollars_per_epoch']}/epoch @ ${d['dollars_per_hour']}/h"
+                if d["dollars_per_epoch"]
+                else ""
+            )
+        )
 
     return result
 
@@ -319,8 +378,10 @@ def save_train_result(result: dict[str, Any], output_dir: str | Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     ts = result.get("created_at", "").replace("-", "").replace(":", "")
-    fname = (f"{result['model']['id']}__train__{result['runtime']['provider']}"
-             f"__{result['hardware']['id']}__{ts}.json")
+    fname = (
+        f"{result['model']['id']}__train__{result['runtime']['provider']}"
+        f"__{result['hardware']['id']}__{ts}.json"
+    )
     path = output_dir / fname
     with open(path, "w") as f:
         json.dump(result, f, indent=2)

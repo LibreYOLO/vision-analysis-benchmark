@@ -1,13 +1,14 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "vision-analysis-benchmark"
-version = "2.0.0"
+version = "2.1.0"
 description = "Benchmarking suite for object detection models — powers visionanalysis.org"
 requires-python = ">=3.10"
 license = "Apache-2.0"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.txt"]
 authors = [{ name = "Xuban Ceccon" }]
 
 dependencies = [
@@ -15,6 +16,7 @@ dependencies = [
     "torchvision>=0.15",
     "numpy>=1.24",
     "Pillow>=9.0",
+    "PyYAML>=6.0",
     "pycocotools>=2.0",
     "psutil>=5.9",
     "tqdm>=4.65",
@@ -36,12 +38,18 @@ dev = [
     "pytest>=7.0",
     "ruff>=0.4",
 ]
+rf100vl = [
+    "rf100vl>=1.1.2",
+]
 
 [project.scripts]
 va-bench = "va_bench.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["va_bench*"]
+
+[tool.setuptools.package-data]
+va_bench = ["data/*.json", "recipes/rf100vl/*.json"]
 
 [tool.ruff]
 line-length = 100

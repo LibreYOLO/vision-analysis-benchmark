@@ -35,6 +35,7 @@ class ModelSpec:
 
 MODEL_REGISTRY: dict[str, ModelSpec] = {}
 
+
 def _register(*specs: ModelSpec) -> None:
     for s in specs:
         MODEL_REGISTRY[s.key] = s
@@ -71,16 +72,34 @@ _register(
 # ---------------------------------------------------------------------------
 _register(
     # --- YOLOv9 end-to-end (4 variants, NMS-free) ---
-    ModelSpec("yolov9e2e-t", "YOLOv9-E2E-T", "yolov9-e2e", "t", "LibreYOLO9E2Et.pt", "t", 640, 0.0, 0.0),
-    ModelSpec("yolov9e2e-s", "YOLOv9-E2E-S", "yolov9-e2e", "s", "LibreYOLO9E2Es.pt", "s", 640, 0.0, 0.0),
-    ModelSpec("yolov9e2e-m", "YOLOv9-E2E-M", "yolov9-e2e", "m", "LibreYOLO9E2Em.pt", "m", 640, 0.0, 0.0),
-    ModelSpec("yolov9e2e-c", "YOLOv9-E2E-C", "yolov9-e2e", "c", "LibreYOLO9E2Ec.pt", "c", 640, 0.0, 0.0),
+    ModelSpec(
+        "yolov9e2e-t", "YOLOv9-E2E-T", "yolov9-e2e", "t", "LibreYOLO9E2Et.pt", "t", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "yolov9e2e-s", "YOLOv9-E2E-S", "yolov9-e2e", "s", "LibreYOLO9E2Es.pt", "s", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "yolov9e2e-m", "YOLOv9-E2E-M", "yolov9-e2e", "m", "LibreYOLO9E2Em.pt", "m", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "yolov9e2e-c", "YOLOv9-E2E-C", "yolov9-e2e", "c", "LibreYOLO9E2Ec.pt", "c", 640, 0.0, 0.0
+    ),
     # --- RT-DETR (7 variants) ---
-    ModelSpec("rtdetr-r18", "RT-DETR-R18", "rtdetr", "r18", "LibreRTDETRr18.pt", "r18", 640, 0.0, 0.0),
-    ModelSpec("rtdetr-r34", "RT-DETR-R34", "rtdetr", "r34", "LibreRTDETRr34.pt", "r34", 640, 0.0, 0.0),
-    ModelSpec("rtdetr-r50", "RT-DETR-R50", "rtdetr", "r50", "LibreRTDETRr50.pt", "r50", 640, 0.0, 0.0),
-    ModelSpec("rtdetr-r50m", "RT-DETR-R50m", "rtdetr", "r50m", "LibreRTDETRr50m.pt", "r50m", 640, 0.0, 0.0),
-    ModelSpec("rtdetr-r101", "RT-DETR-R101", "rtdetr", "r101", "LibreRTDETRr101.pt", "r101", 640, 0.0, 0.0),
+    ModelSpec(
+        "rtdetr-r18", "RT-DETR-R18", "rtdetr", "r18", "LibreRTDETRr18.pt", "r18", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "rtdetr-r34", "RT-DETR-R34", "rtdetr", "r34", "LibreRTDETRr34.pt", "r34", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "rtdetr-r50", "RT-DETR-R50", "rtdetr", "r50", "LibreRTDETRr50.pt", "r50", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "rtdetr-r50m", "RT-DETR-R50m", "rtdetr", "r50m", "LibreRTDETRr50m.pt", "r50m", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "rtdetr-r101", "RT-DETR-R101", "rtdetr", "r101", "LibreRTDETRr101.pt", "r101", 640, 0.0, 0.0
+    ),
     ModelSpec("rtdetr-l", "RT-DETR-L", "rtdetr", "l", "LibreRTDETRl.pt", "l", 640, 0.0, 0.0),
     ModelSpec("rtdetr-x", "RT-DETR-X", "rtdetr", "x", "LibreRTDETRx.pt", "x", 640, 0.0, 0.0),
     # --- DEIM (5 variants) ---
@@ -90,9 +109,23 @@ _register(
     ModelSpec("deim-l", "DEIM-L", "deim", "l", "LibreDEIMl.pt", "l", 640, 0.0, 0.0),
     ModelSpec("deim-x", "DEIM-X", "deim", "x", "LibreDEIMx.pt", "x", 640, 0.0, 0.0),
     # --- DEIMv2 (8 variants, per-variant input sizes) ---
-    ModelSpec("deimv2-atto", "DEIMv2-Atto", "deimv2", "atto", "LibreDEIMv2atto.pt", "atto", 320, 0.0, 0.0),
-    ModelSpec("deimv2-femto", "DEIMv2-Femto", "deimv2", "femto", "LibreDEIMv2femto.pt", "femto", 416, 0.0, 0.0),
-    ModelSpec("deimv2-pico", "DEIMv2-Pico", "deimv2", "pico", "LibreDEIMv2pico.pt", "pico", 640, 0.0, 0.0),
+    ModelSpec(
+        "deimv2-atto", "DEIMv2-Atto", "deimv2", "atto", "LibreDEIMv2atto.pt", "atto", 320, 0.0, 0.0
+    ),
+    ModelSpec(
+        "deimv2-femto",
+        "DEIMv2-Femto",
+        "deimv2",
+        "femto",
+        "LibreDEIMv2femto.pt",
+        "femto",
+        416,
+        0.0,
+        0.0,
+    ),
+    ModelSpec(
+        "deimv2-pico", "DEIMv2-Pico", "deimv2", "pico", "LibreDEIMv2pico.pt", "pico", 640, 0.0, 0.0
+    ),
     ModelSpec("deimv2-n", "DEIMv2-N", "deimv2", "n", "LibreDEIMv2n.pt", "n", 640, 0.0, 0.0),
     ModelSpec("deimv2-s", "DEIMv2-S", "deimv2", "s", "LibreDEIMv2s.pt", "s", 640, 0.0, 0.0),
     ModelSpec("deimv2-m", "DEIMv2-M", "deimv2", "m", "LibreDEIMv2m.pt", "m", 640, 0.0, 0.0),
@@ -128,16 +161,74 @@ _register(
 # ---------------------------------------------------------------------------
 _register(
     # RT-DETRv2 (5)
-    ModelSpec("rtdetrv2-r18", "RT-DETRv2-R18", "rtdetrv2", "r18", "LibreRTDETRv2r18.pt", "r18", 640, 0.0, 0.0),
-    ModelSpec("rtdetrv2-r34", "RT-DETRv2-R34", "rtdetrv2", "r34", "LibreRTDETRv2r34.pt", "r34", 640, 0.0, 0.0),
-    ModelSpec("rtdetrv2-r50", "RT-DETRv2-R50", "rtdetrv2", "r50", "LibreRTDETRv2r50.pt", "r50", 640, 0.0, 0.0),
-    ModelSpec("rtdetrv2-r50m", "RT-DETRv2-R50m", "rtdetrv2", "r50m", "LibreRTDETRv2r50m.pt", "r50m", 640, 0.0, 0.0),
-    ModelSpec("rtdetrv2-r101", "RT-DETRv2-R101", "rtdetrv2", "r101", "LibreRTDETRv2r101.pt", "r101", 640, 0.0, 0.0),
+    ModelSpec(
+        "rtdetrv2-r18",
+        "RT-DETRv2-R18",
+        "rtdetrv2",
+        "r18",
+        "LibreRTDETRv2r18.pt",
+        "r18",
+        640,
+        0.0,
+        0.0,
+    ),
+    ModelSpec(
+        "rtdetrv2-r34",
+        "RT-DETRv2-R34",
+        "rtdetrv2",
+        "r34",
+        "LibreRTDETRv2r34.pt",
+        "r34",
+        640,
+        0.0,
+        0.0,
+    ),
+    ModelSpec(
+        "rtdetrv2-r50",
+        "RT-DETRv2-R50",
+        "rtdetrv2",
+        "r50",
+        "LibreRTDETRv2r50.pt",
+        "r50",
+        640,
+        0.0,
+        0.0,
+    ),
+    ModelSpec(
+        "rtdetrv2-r50m",
+        "RT-DETRv2-R50m",
+        "rtdetrv2",
+        "r50m",
+        "LibreRTDETRv2r50m.pt",
+        "r50m",
+        640,
+        0.0,
+        0.0,
+    ),
+    ModelSpec(
+        "rtdetrv2-r101",
+        "RT-DETRv2-R101",
+        "rtdetrv2",
+        "r101",
+        "LibreRTDETRv2r101.pt",
+        "r101",
+        640,
+        0.0,
+        0.0,
+    ),
     # RT-DETRv4 (4)
-    ModelSpec("rtdetrv4-s", "RT-DETRv4-S", "rtdetrv4", "s", "LibreRTDETRv4s.pt", "s", 640, 0.0, 0.0),
-    ModelSpec("rtdetrv4-m", "RT-DETRv4-M", "rtdetrv4", "m", "LibreRTDETRv4m.pt", "m", 640, 0.0, 0.0),
-    ModelSpec("rtdetrv4-l", "RT-DETRv4-L", "rtdetrv4", "l", "LibreRTDETRv4l.pt", "l", 640, 0.0, 0.0),
-    ModelSpec("rtdetrv4-x", "RT-DETRv4-X", "rtdetrv4", "x", "LibreRTDETRv4x.pt", "x", 640, 0.0, 0.0),
+    ModelSpec(
+        "rtdetrv4-s", "RT-DETRv4-S", "rtdetrv4", "s", "LibreRTDETRv4s.pt", "s", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "rtdetrv4-m", "RT-DETRv4-M", "rtdetrv4", "m", "LibreRTDETRv4m.pt", "m", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "rtdetrv4-l", "RT-DETRv4-L", "rtdetrv4", "l", "LibreRTDETRv4l.pt", "l", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "rtdetrv4-x", "RT-DETRv4-X", "rtdetrv4", "x", "LibreRTDETRv4x.pt", "x", 640, 0.0, 0.0
+    ),
     # RTMDet (5)
     ModelSpec("rtmdet-t", "RTMDet-T", "rtmdet", "t", "LibreRTMDett.pt", "t", 640, 0.0, 0.0),
     ModelSpec("rtmdet-s", "RTMDet-S", "rtmdet", "s", "LibreRTMDets.pt", "s", 640, 0.0, 0.0),

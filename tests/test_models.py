@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from va_bench.models import (
-    MODEL_REGISTRY,
     get_spec,
     list_models,
     resolve_onnx_weights,
@@ -16,9 +13,7 @@ from va_bench.models import (
 
 def test_registry_has_expected_models():
     keys = list_models()
-    assert len(keys) == 70
     for fam in (
-        "damoyolo-",
         "deim-",
         "deimv2-",
         "dfine-",
@@ -31,10 +26,12 @@ def test_registry_has_expected_models():
         "rtmdet-",
         "yolov9",
         "yolov9e2e-",
+        "yolonas-",
         "yolox-",
     ):
         assert any(k.startswith(fam) for k in keys)
-    assert not any(k.startswith("yolonas-") for k in keys)
+    assert {"yolonas-s", "yolonas-m", "yolonas-l"} <= set(keys)
+    assert not any(k.startswith("damoyolo-") for k in keys)
 
 
 def test_get_spec_unknown_raises():

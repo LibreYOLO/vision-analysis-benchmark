@@ -1,0 +1,57 @@
+{
+  "schema_version": "rf100vl.recipe.v1",
+  "family": "rfdetr",
+  "source": {
+    "repository": "https://github.com/LibreYOLO/libreyolo",
+    "commit": "3e3c9dffc9e4bd41a363f1dd6ca1c736e145a5d8",
+    "paths": ["libreyolo/models/rfdetr/config.py"],
+    "license": "MIT",
+    "normalization": "LibreYOLO RF-DETR fine-tune defaults under the RF100-VL fixed skeleton"
+  },
+  "protocol": {
+    "epochs": 100,
+    "effective_batch": 16,
+    "physical_batch": 4,
+    "selection_metric": "valid_mAP50_95",
+    "eval_interval": 1,
+    "patience": 0,
+    "ema": true,
+    "seed": 0,
+    "precision": "fp32"
+  },
+  "dense_oom_fallback": {
+    "max_annotations_per_image_threshold": 200,
+    "physical_batch": 2
+  },
+  "sizes": {
+    "n": {"imgsz": 384},
+    "s": {"imgsz": 512},
+    "m": {"imgsz": 576},
+    "l": {"imgsz": 704, "physical_batch": 2}
+  },
+  "train": {
+    "optimizer": "adamw",
+    "lr0": 0.0001,
+    "weight_decay": 0.0001,
+    "scheduler": "step",
+    "warmup_epochs": 0,
+    "warmup_lr_start": 0.000001,
+    "no_aug_epochs": 0,
+    "min_lr_ratio": 0.0,
+    "lr_drop": 100,
+    "mosaic_prob": 0.0,
+    "mixup_prob": 0.0,
+    "hsv_prob": 0.0,
+    "flip_prob": 0.5,
+    "degrees": 0.0,
+    "translate": 0.0,
+    "shear": 0.0,
+    "multi_scale": true,
+    "expanded_scales": true,
+    "crop_resize_prob": 0.5,
+    "backbone_lr_mult": 0.1,
+    "clip_max_norm": 0.1,
+    "ema_decay": 0.993,
+    "workers": 0
+  }
+}

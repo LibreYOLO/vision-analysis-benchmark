@@ -1,0 +1,43 @@
+{
+  "schema_version": "rf100vl.recipe.v1",
+  "family": "rtdetrv4",
+  "source": {
+    "repository": "https://github.com/LibreYOLO/libreyolo",
+    "commit": "3e3c9dffc9e4bd41a363f1dd6ca1c736e145a5d8",
+    "paths": ["libreyolo/training/config.py"],
+    "license": "MIT",
+    "normalization": "LibreYOLO family defaults under the RF100-VL fixed skeleton"
+  },
+  "protocol": {
+    "epochs": 100,
+    "effective_batch": 16,
+    "physical_batch": 8,
+    "selection_metric": "valid_mAP50_95",
+    "eval_interval": 1,
+    "patience": 0,
+    "ema": true,
+    "seed": 0,
+    "precision": "fp32"
+  },
+  "sizes": {},
+  "train": {
+    "imgsz": 640,
+    "optimizer": "adamw",
+    "lr0": 0.0005,
+    "weight_decay": 0.000125,
+    "scheduler": "flat_cosine",
+    "warmup_epochs": 2,
+    "warmup_lr_start": 0.000001,
+    "no_aug_epochs": 12,
+    "min_lr_ratio": 0.05,
+    "mosaic_prob": 0.0,
+    "mixup_prob": 0.0,
+    "hsv_prob": 0.0,
+    "flip_prob": 0.5,
+    "degrees": 10.0,
+    "translate": 0.1,
+    "shear": 0.0,
+    "ema_decay": 0.9999,
+    "workers": 4
+  }
+}
