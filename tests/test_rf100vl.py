@@ -311,11 +311,55 @@ def test_per_dataset_results_resume_and_record_version_recipe_hash(
     )
 
     assert calls == ["fake-n", "fake-n"]
-    assert len(list(cache_dir.glob("*.json"))) == 2
+    assert len(list(cache_dir.rglob("*.json"))) == 2
     assert all(item["resumed_from_cache"] for item in second["rf100vl"]["datasets"])
     assert len(first["repro"]["dataset"]["versions"]["sha256"]) == 64
     assert first["repro"]["dataset"]["datasets"][0]["version_id"] == 3
     assert first["repro"]["recipe"]["sha256"] == rf100vl.file_sha256(recipe)
+
+
+def test_smoke_cache_does_not_overwrite_full_campaign_resume(
+    rf_root,
+    tmp_path,
+    monkeypatch,
+):
+    calls = []
+    loader = _stub_loader(perfect=True)
+
+    def counting_loader(*args, **kwargs):
+        calls.append(args[0].key)
+        return loader(*args, **kwargs)
+
+    monkeypatch.setattr(rf100vl, "get_spec", lambda key: _fake_spec())
+    monkeypatch.setattr(rf100vl, "_load_for_dataset", counting_loader)
+    cache_dir = tmp_path / "per-dataset"
+
+    benchmark_model_rf100vl(
+        "fake-n",
+        rf_root,
+        allow_pretrained=True,
+        per_dataset_dir=cache_dir,
+        verbose=False,
+    )
+    benchmark_model_rf100vl(
+        "fake-n",
+        rf_root,
+        allow_pretrained=True,
+        per_dataset_dir=cache_dir,
+        limit=1,
+        verbose=False,
+    )
+    resumed = benchmark_model_rf100vl(
+        "fake-n",
+        rf_root,
+        allow_pretrained=True,
+        per_dataset_dir=cache_dir,
+        verbose=False,
+    )
+
+    assert calls == ["fake-n"] * 4
+    assert len(list(cache_dir.rglob("*.json"))) == 4
+    assert all(item["resumed_from_cache"] for item in resumed["rf100vl"]["datasets"])
 
 
 def test_non_protocol_training_stats_invalidate_finetuned_result(
@@ -355,6 +399,66 @@ def test_non_protocol_training_stats_invalidate_finetuned_result(
     assert any(
         "non-protocol training runs" in reason for reason in result["rf100vl"]["invalid_reasons"]
     )
+
+
+def test_training_stats_require_verified_libreyolo_capabilities(tmp_path):
+    weights_root = tmp_path / "weights"
+    target = weights_root / "aerial-cows"
+    target.mkdir(parents=True)
+    lock = {
+        "schema_version": VERSION_LOCK_SCHEMA,
+        "subset": "rf100vl",
+        "source": {"commit": "abc"},
+        "datasets": {
+            "aerial-cows": {
+                "project_name": "aerial-cows",
+                "version_id": 3,
+            }
+        },
+        "downloaded": ["aerial-cows"],
+        "selection_complete": True,
+    }
+    stats = {
+        "schema_version": rf100vl.TRAIN_STATS_SCHEMA,
+        "protocol_version": rf100vl.PROTOCOL_VERSION,
+        "protocol_conformant": True,
+        "dataset": "aerial-cows",
+        "dataset_version": 3,
+        "model_key": "fake-n",
+        "seed": rf100vl.PROTOCOL_SEED,
+        "precision": "fp32",
+        "epochs_requested": rf100vl.PROTOCOL_EPOCHS,
+        "versions_sha256": rf100vl.version_lock_sha256(lock),
+        "recipe": {
+            "file": "recipe.json",
+            "sha256": "a" * 64,
+        },
+    }
+    atomic_write_json(target / "stats.json", stats)
+
+    _, reasons = rf100vl._recipe_repro(
+        None,
+        weights_root,
+        ["aerial-cows"],
+        version_lock=lock,
+        model_key="fake-n",
+    )
+    assert any("training metadata" in reason for reason in reasons)
+
+    stats["libreyolo_capabilities"] = {
+        "validated": True,
+        "eval_max_det": 500,
+        "default_eval_max_det": 100,
+    }
+    atomic_write_json(target / "stats.json", stats)
+    _, reasons = rf100vl._recipe_repro(
+        None,
+        weights_root,
+        ["aerial-cows"],
+        version_lock=lock,
+        model_key="fake-n",
+    )
+    assert not any("training metadata" in reason for reason in reasons)
 
 
 def test_training_stats_must_match_dataset_version_lock(

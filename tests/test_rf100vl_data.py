@@ -5,16 +5,19 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from va_bench import rf100vl_data
 
 
 class _Version:
     def __init__(self, version_id, calls):
-        self.id = version_id
+        self.id = f"workspace/project/{version_id}"
+        self.version = version_id
         self._calls = calls
 
     def download(self, *, location, model_format, overwrite):
-        self._calls.append((self.id, location, model_format, overwrite))
+        self._calls.append((self.version, location, model_format, overwrite))
         for split in ("train", "valid", "test"):
             split_dir = rf100vl_data.Path(location) / split
             split_dir.mkdir(parents=True, exist_ok=True)
@@ -34,7 +37,11 @@ class _Project:
         return list(self._versions)
 
     def version(self, version_id):
-        return next(item for item in self._versions if item.id == version_id)
+        return next(
+            item
+            for item in self._versions
+            if rf100vl_data.roboflow_version_number(item) == version_id
+        )
 
 
 class _Wrapper:
@@ -72,6 +79,18 @@ def test_download_writes_complete_lock_then_replays_exact_version(tmp_path, monk
         verbose=False,
     )
     assert calls == [(3, str(tmp_path / "z-dataset"), "coco", True)]
+
+
+def test_version_number_parses_real_sdk_slug_without_numeric_version_attribute():
+    version = SimpleNamespace(id="workspace/project/10")
+    assert rf100vl_data.roboflow_version_number(version) == 10
+
+
+def test_version_number_rejects_non_numeric_slug():
+    with pytest.raises(ValueError, match="invalid identity"):
+        rf100vl_data.roboflow_version_number(
+            SimpleNamespace(id="workspace/project/latest")
+        )
 
 
 def test_version_lock_hash_ignores_mutable_download_progress():

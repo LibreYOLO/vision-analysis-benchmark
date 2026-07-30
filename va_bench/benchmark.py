@@ -8,7 +8,7 @@ prediction collection, and memory tracking. Supports two backends:
   timing (preprocess / inference / postprocess) and VRAM stats on CUDA.
 * ``onnx``     — LibreYOLO's ONNX Runtime backend. Treated as a black
   box: total wall time per image, no phase split, no VRAM stats.
-* ``tensorrt`` — LibreYOLO's native TensorRT backend (FP16 engines).
+* ``tensorrt``: LibreYOLO's native TensorRT backend (FP16 engines).
   Treated as a black box exactly like ``onnx``: total wall time per
   image, no phase split, no VRAM stats.
 """
@@ -157,7 +157,7 @@ def benchmark_model(
         model_key: Registry key (e.g. "yolov9t", "yolox-s").
         coco_dir: Path to COCO directory containing images/val2017/ and
             annotations/instances_val2017.json.
-        fmt: Backend format — "pytorch" (default), "onnx", or "tensorrt".
+        fmt: Backend format: "pytorch" (default), "onnx", or "tensorrt".
         weights_dir: Directory containing user-supplied ONNX files (.onnx)
             or TensorRT engines (.engine + .engine.json sidecar).
             Required when fmt="onnx" or fmt="tensorrt", ignored otherwise.

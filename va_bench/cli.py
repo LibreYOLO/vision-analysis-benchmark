@@ -12,6 +12,35 @@ import argparse
 import sys
 from pathlib import Path
 
+_LEADING_DASH_DATASET = "__VA_BENCH_LEADING_DASH_DATASET__"
+
+
+def _protect_leading_dash_dataset_names(argv: list[str]) -> list[str]:
+    """Keep argparse from treating RF100-VL names like ``-grccs`` as flags."""
+    protected = list(argv)
+    try:
+        start = protected.index("--datasets") + 1
+    except ValueError:
+        return protected
+    for index in range(start, len(protected)):
+        value = protected[index]
+        if value == "-h" or value.startswith("--"):
+            break
+        if value.startswith("-"):
+            protected[index] = _LEADING_DASH_DATASET + value
+    return protected
+
+
+def _restore_leading_dash_dataset_names(values: list[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+    return [
+        value.removeprefix(_LEADING_DASH_DATASET)
+        if value.startswith(_LEADING_DASH_DATASET)
+        else value
+        for value in values
+    ]
+
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Run benchmarks on one or more models."""
@@ -161,7 +190,7 @@ def cmd_rf100vl(args: argparse.Namespace) -> None:
     print(f"Will evaluate {len(model_keys)} model(s) on RF100-VL")
     print(f"  Format:       {args.format}")
     print(f"  Data dir:     {args.data_dir}")
-    print(f"  Weights root: {args.weights_root or '(none — requires --allow-pretrained)'}")
+    print(f"  Weights root: {args.weights_root or '(none; requires --allow-pretrained)'}")
     print(f"  Output:       {args.output_dir}")
 
     harness = harness_git_info()
@@ -172,6 +201,7 @@ def cmd_rf100vl(args: argparse.Namespace) -> None:
         "command": reconstruct_command(sys.argv[1:]),
     }
 
+    failed: list[str] = []
     for key in model_keys:
         try:
             result = benchmark_model_rf100vl(
@@ -196,6 +226,7 @@ def cmd_rf100vl(args: argparse.Namespace) -> None:
             filepath = save_result(result, args.output_dir)
             print(f"\nSaved: {filepath}")
         except Exception as e:
+            failed.append(key)
             print(f"\nError on RF100-VL for {key}: {e}")
             if args.debug:
                 import traceback
@@ -203,6 +234,9 @@ def cmd_rf100vl(args: argparse.Namespace) -> None:
                 traceback.print_exc()
             continue
 
+    if failed:
+        print(f"\nRF100-VL evaluation failed for {len(failed)} model(s): {', '.join(failed)}")
+        raise SystemExit(1)
     print(f"\nDone. Results in {args.output_dir}/")
 
 
@@ -230,11 +264,15 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
         "RF100-VL training complete: "
         f"{len(summary['completed'])} completed, "
         f"{len(summary['skipped_done'])} already done, "
-        f"{len(summary['failed'])} failed"
+        f"{len(summary['failed'])} failed, "
+        f"{len(summary.get('active_running', []))} still running"
     )
     print(f"Summary: {Path(summary['rerun_file']).parent / 'summary.json'}")
     if summary["failed"]:
         print(f"Rerun list: {summary['rerun_file']}")
+    if summary.get("active_running"):
+        print("Active datasets: " + ", ".join(summary["active_running"]))
+    if summary["failed"] or summary.get("active_running"):
         raise SystemExit(1)
 
 
@@ -260,7 +298,7 @@ def cmd_list(args: argparse.Namespace) -> None:
     print(f"\n{len(MODEL_REGISTRY)} models available")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="va-bench",
         description="Vision Analysis Benchmark — powers visionanalysis.org",
@@ -590,7 +628,10 @@ def main() -> None:
     # --- list ---
     subparsers.add_parser("list", help="List available models and specs")
 
-    args = parser.parse_args()
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(_protect_leading_dash_dataset_names(raw_argv))
+    if hasattr(args, "datasets"):
+        args.datasets = _restore_leading_dash_dataset_names(args.datasets)
 
     if args.command == "run":
         cmd_run(args)

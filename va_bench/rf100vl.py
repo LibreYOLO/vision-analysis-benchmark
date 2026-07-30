@@ -9,9 +9,9 @@ published score is the mean AP50 / AP50:95 across all datasets.
 
 This module implements the evaluation half of that protocol:
 
-* ``download_datasets``  — fetch RF100-VL (or the RF20-VL subset) via the
+* ``download_datasets``: fetch RF100-VL (or the RF20-VL subset) via the
   ``rf100vl`` pip package into a local directory, one sub-folder per dataset.
-* ``benchmark_model_rf100vl`` — run one registered model over every dataset's
+* ``benchmark_model_rf100vl``: run one registered model over every dataset's
   chosen split, score each dataset independently with pycocotools, and emit a
   single submission JSON whose accuracy block is the across-dataset mean plus
   a per-dataset breakdown under ``rf100vl``.
@@ -23,7 +23,7 @@ Fine-tuned checkpoints are supplied per dataset via ``--weights-root``:
 
 Running COCO-pretrained weights across RF100-VL is meaningless for closed-
 vocabulary detectors (the class spaces differ), so it is refused unless
-``allow_pretrained=True`` — that escape hatch exists for smoke tests and for
+``allow_pretrained=True``; that escape hatch exists for smoke tests and for
 future open-vocabulary models whose class space is prompt-defined.
 """
 
@@ -393,10 +393,18 @@ def _recipe_repro(
             "epochs_requested": PROTOCOL_EPOCHS,
             "versions_sha256": expected_versions_sha256,
         }
-        if any(
+        metadata_invalid = any(
             expected is not None and stats.get(key) != expected
             for key, expected in expected_metadata.items()
-        ) or stats.get("precision") not in {"fp32", "bfloat16"}:
+        ) or stats.get("precision") not in {"fp32", "bfloat16"}
+        capabilities = stats.get("libreyolo_capabilities")
+        capability_invalid = (
+            not isinstance(capabilities, dict)
+            or capabilities.get("validated") is not True
+            or capabilities.get("eval_max_det") != PROTOCOL_MAX_DET
+            or capabilities.get("default_eval_max_det") != 100
+        )
+        if metadata_invalid or capability_invalid:
             metadata_mismatch.append(name)
         recipe_file = recipe.get("file")
         if isinstance(recipe_file, str):
@@ -437,8 +445,9 @@ def _recipe_repro(
 def _dataset_cache_path(
     root: Path,
     dataset_name: str,
+    fingerprint: str,
 ) -> Path:
-    return root / f"{dataset_name}.json"
+    return root / dataset_name / f"{fingerprint}.json"
 
 
 def _load_cached_dataset_result(
@@ -553,7 +562,7 @@ def benchmark_model_rf100vl(
         print(f"\n{'=' * 70}")
         print(
             f"RF100-VL: {spec.display_name} ({spec.key}) [{fmt}] "
-            f"— {len(dataset_dirs)} datasets, split={split}"
+            f"- {len(dataset_dirs)} datasets, split={split}"
         )
         print(f"{'=' * 70}")
 
@@ -641,7 +650,7 @@ def benchmark_model_rf100vl(
             },
         }
         cache_fingerprint = canonical_json_sha256(cache_inputs)
-        cache_path = _dataset_cache_path(cache_root, name)
+        cache_path = _dataset_cache_path(cache_root, name, cache_fingerprint)
         cached = _load_cached_dataset_result(cache_path, cache_fingerprint)
 
         if cached is None:

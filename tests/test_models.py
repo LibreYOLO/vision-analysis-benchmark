@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 import pytest
 
 from va_bench.models import (
+    MODEL_REGISTRY,
     get_spec,
     list_models,
     resolve_onnx_weights,
@@ -32,6 +35,23 @@ def test_registry_has_expected_models():
         assert any(k.startswith(fam) for k in keys)
     assert {"yolonas-s", "yolonas-m", "yolonas-l"} <= set(keys)
     assert not any(k.startswith("damoyolo-") for k in keys)
+    assert len(keys) == 67
+    assert Counter(spec.family for spec in MODEL_REGISTRY.values()) == {
+        "deim": 5,
+        "deimv2": 8,
+        "dfine": 5,
+        "ec": 4,
+        "picodet": 3,
+        "rfdetr": 4,
+        "rtdetr": 7,
+        "rtdetrv2": 5,
+        "rtdetrv4": 4,
+        "rtmdet": 5,
+        "yolonas": 3,
+        "yolov9": 4,
+        "yolov9-e2e": 4,
+        "yolox": 6,
+    }
 
 
 def test_get_spec_unknown_raises():

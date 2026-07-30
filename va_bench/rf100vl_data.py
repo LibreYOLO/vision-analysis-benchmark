@@ -164,16 +164,35 @@ def load_version_lock(
     return validate_version_lock(load_json(path))
 
 
+def roboflow_version_number(version: Any) -> int:
+    """Extract the numeric version from the SDK's number or project slug."""
+    raw = getattr(version, "version", None)
+    if raw is None:
+        raw = getattr(version, "id", None)
+    if isinstance(raw, bool) or raw is None:
+        raise ValueError(f"Roboflow version has no numeric identity: {raw!r}")
+    if isinstance(raw, int):
+        number = raw
+    else:
+        tail = str(raw).rstrip("/").rsplit("/", 1)[-1]
+        if not tail.isdigit():
+            raise ValueError(f"Roboflow version has invalid identity: {raw!r}")
+        number = int(tail)
+    if number < 1:
+        raise ValueError(f"Roboflow version must be positive, got {number}")
+    return number
+
+
 def _new_version_lock(subset: str, wrappers: dict[str, Any]) -> dict[str, Any]:
     records: dict[str, dict[str, Any]] = {}
     for name, wrapper in wrappers.items():
         versions = list(wrapper.rf_project.versions())
         if not versions:
             raise RuntimeError(f"RF100-VL project {name!r} has no downloadable versions")
-        selected = max(versions, key=lambda version: int(version.id))
+        selected = max(versions, key=roboflow_version_number)
         records[name] = {
             "project_name": str(getattr(wrapper.rf_project, "name", name)),
-            "version_id": int(selected.id),
+            "version_id": roboflow_version_number(selected),
         }
     return {
         "schema_version": VERSION_LOCK_SCHEMA,
@@ -246,7 +265,10 @@ def download_version_locked_datasets(
 
         wrapper = wrappers[name]
         version_id = int(lock["datasets"][name]["version_id"])
-        versions = {int(version.id): version for version in wrapper.rf_project.versions()}
+        versions = {
+            roboflow_version_number(version): version
+            for version in wrapper.rf_project.versions()
+        }
         version = versions.get(version_id)
         if version is None:
             # Public Roboflow API supports exact project.version(id). Keeping

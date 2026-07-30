@@ -9,7 +9,7 @@ the first epoch as warmup, and reports steady-state training throughput
 
 Why epoch-granularity and the real train loop: the data-dependent cost
 (label assignment / matcher / loss) is only authentic with the real augmented
-dataloader and the family's real loss — so we measure at the granularity the
+dataloader and the family's real loss, so we measure at the granularity the
 trainer already exposes (epoch_seconds) rather than reimplementing a step.
 
 The unit of measurement is a *configuration*, not a bare GPU:
@@ -38,7 +38,7 @@ from .models import get_spec, load_model
 from .output import detect_hardware_id
 from .provenance import build_weights_repro, run_repro
 
-# COCO train2017 size — the projection target for "$/epoch of full COCO".
+# COCO train2017 size: the projection target for "$/epoch of full COCO".
 COCO_FULL_TRAIN_IMAGES = 118_287
 
 
@@ -130,7 +130,7 @@ def benchmark_train_throughput(
 
     Args:
         model_key: Registry key (e.g. "yolov9t").
-        data: Dataset yaml/name (default coco1000 — the portable fixture).
+        data: Dataset yaml/name (default coco1000, the portable fixture).
         device: "auto"/"0"/"cpu".
         batch: Per-step micro-batch.
         imgsz: Input size; defaults to the model's native size.

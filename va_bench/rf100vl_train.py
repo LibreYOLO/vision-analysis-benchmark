@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import os
 import queue
 import shutil
@@ -15,7 +16,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -39,6 +40,86 @@ PROTOCOL_VERSION = "rf100vl.libreyolo.v1"
 EXPECTED_EPOCHS = 100
 EXPECTED_EFFECTIVE_BATCH = 16
 EXPECTED_SELECTION_METRIC = "valid_mAP50_95"
+
+
+def _load_libreyolo_protocol_types():
+    from libreyolo.training.config import TrainConfig
+    from libreyolo.validation.config import ValidationConfig
+    from libreyolo.validation.detection_validator import DetectionValidator
+
+    return TrainConfig, ValidationConfig, DetectionValidator
+
+
+def require_libreyolo_protocol_capabilities() -> dict[str, Any]:
+    """Fail before training if LibreYOLO cannot enforce the fixed protocol."""
+    from dataclasses import fields
+
+    try:
+        train_config_cls, validation_config_cls, validator_cls = (
+            _load_libreyolo_protocol_types()
+        )
+        train_fields = {field.name for field in fields(train_config_cls)}
+        validation_fields = {field.name for field in fields(validation_config_cls)}
+    except Exception as exc:
+        raise RuntimeError(
+            "Installed LibreYOLO lacks the RF100-VL protocol API; install the "
+            "LibreYOLO revision that provides eval_max_det and amp_dtype."
+        ) from exc
+
+    required_train = {"amp_dtype", "max_det", "eval_max_det"}
+    required_validation = {"amp_dtype", "max_det", "eval_max_det"}
+    missing_train = sorted(required_train - train_fields)
+    missing_validation = sorted(required_validation - validation_fields)
+    if missing_train or missing_validation or not hasattr(validator_cls, "_coco_max_det"):
+        raise RuntimeError(
+            "Installed LibreYOLO cannot enforce the RF100-VL protocol "
+            f"(missing TrainConfig={missing_train}, "
+            f"ValidationConfig={missing_validation}, "
+            f"evaluator_plumbing={hasattr(validator_cls, '_coco_max_det')})."
+        )
+
+    train_config = train_config_cls(
+        amp_dtype="bfloat16",
+        max_det=500,
+        eval_max_det=500,
+    )
+    default_validation = validation_config_cls(
+        data="__rf100vl_capability_probe__.yaml",
+        max_det=300,
+        eval_max_det=None,
+    )
+    protocol_validation = validation_config_cls(
+        data="__rf100vl_capability_probe__.yaml",
+        max_det=500,
+        eval_max_det=500,
+        amp_dtype="bfloat16",
+    )
+    default_validator = object.__new__(validator_cls)
+    default_validator.config = default_validation
+    protocol_validator = object.__new__(validator_cls)
+    protocol_validator.config = protocol_validation
+    if (
+        getattr(train_config, "eval_max_det", None) != 500
+        or default_validator._coco_max_det() != 100
+        or protocol_validator._coco_max_det() != 500
+    ):
+        raise RuntimeError(
+            "Installed LibreYOLO exposes RF100-VL options but does not preserve "
+            "default AP@100 and opt-in AP@500 semantics."
+        )
+
+    try:
+        version = importlib.metadata.version("libreyolo")
+    except importlib.metadata.PackageNotFoundError:
+        version = None
+    return {
+        "validated": True,
+        "version": version,
+        "amp_dtype": getattr(train_config, "amp_dtype", None),
+        "prediction_max_det": getattr(train_config, "max_det", None),
+        "eval_max_det": getattr(train_config, "eval_max_det", None),
+        "default_eval_max_det": default_validator._coco_max_det(),
+    }
 
 
 def utc_now() -> str:
@@ -127,6 +208,17 @@ def load_recipe(
             raise ValueError(
                 f"Recipe {path} size {variant!r} has incompatible physical batch {variant_batch}"
             )
+        if "fallback_physical_batch" in override:
+            variant_fallback = int(override["fallback_physical_batch"])
+            if (
+                variant_fallback < 1
+                or EXPECTED_EFFECTIVE_BATCH % variant_fallback != 0
+                or variant_fallback >= variant_batch
+            ):
+                raise ValueError(
+                    f"Recipe {path} size {variant!r} has ineffective fallback "
+                    f"batch {variant_fallback}"
+                )
     fallback = recipe.get("dense_oom_fallback")
     if isinstance(fallback, dict):
         fallback_batch = int(fallback.get("physical_batch", 0))
@@ -244,7 +336,12 @@ def select_batch_plan(
     fallback = recipe.get("dense_oom_fallback")
     if spec.family == "rfdetr" and isinstance(fallback, dict):
         threshold = int(fallback["max_annotations_per_image_threshold"])
-        fallback_batch = int(fallback["physical_batch"])
+        fallback_batch = int(
+            size_override.get(
+                "fallback_physical_batch",
+                fallback["physical_batch"],
+            )
+        )
         dense = int(dataset_facts["max_annotations_per_image"]) >= threshold
         if dense or force_fallback:
             batch = fallback_batch
@@ -286,6 +383,7 @@ def build_train_kwargs(
     kwargs = dict(recipe["train"])
     kwargs.update(_size_overrides(recipe, spec))
     kwargs.pop("physical_batch", None)
+    kwargs.pop("fallback_physical_batch", None)
     precision = str(protocol["precision"])
     kwargs.update(
         {
@@ -306,6 +404,7 @@ def build_train_kwargs(
             "eval_interval": 1,
             "ema": True,
             "max_det": 500,
+            "eval_max_det": 500,
         }
     )
     if spec.family == "ec":
@@ -344,6 +443,10 @@ def _run_signature(
                 "amp": train_kwargs["amp"],
                 "amp_dtype": train_kwargs["amp_dtype"],
             },
+            "evaluation": {
+                "max_det": train_kwargs["max_det"],
+                "eval_max_det": train_kwargs["eval_max_det"],
+            },
         }
     )
 
@@ -372,6 +475,7 @@ def run_dataset_worker(config_path: str | Path) -> int:
         Image.MAX_IMAGE_PIXELS = None
         ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+        libreyolo_capabilities = require_libreyolo_protocol_capabilities()
         from libreyolo import LibreYOLO
 
         spec = get_spec(config["model_key"])
@@ -420,12 +524,15 @@ def run_dataset_worker(config_path: str | Path) -> int:
         wall_seconds = time.perf_counter() - start_time
         recipe_sha256 = file_sha256(recipe_path)
         protocol_conformant = (
-            config.get("smoke_epochs") is None and int(train_kwargs["epochs"]) == EXPECTED_EPOCHS
+            config.get("smoke_epochs") is None
+            and int(train_kwargs["epochs"]) == EXPECTED_EPOCHS
+            and libreyolo_capabilities.get("validated") is True
         )
         stats = {
             "schema_version": STATS_SCHEMA,
             "protocol_version": PROTOCOL_VERSION,
             "protocol_conformant": protocol_conformant,
+            "libreyolo_capabilities": libreyolo_capabilities,
             "dataset": config["dataset_name"],
             "dataset_version": config["dataset_version"],
             "model_key": spec.key,
@@ -498,20 +605,80 @@ def _read_status(path: Path) -> dict[str, Any] | None:
     return load_json(path)
 
 
+def _status_process_is_live(status: dict[str, Any]) -> bool:
+    """Return whether a running status still identifies the same child."""
+    import psutil
+
+    pid = status.get("pid")
+    recorded_create_time = status.get("pid_create_time")
+    if (
+        isinstance(pid, bool)
+        or not isinstance(pid, int)
+        or pid < 1
+        or not isinstance(recorded_create_time, (int, float))
+    ):
+        return False
+    try:
+        process = psutil.Process(pid)
+        if not process.is_running() or process.status() == psutil.STATUS_ZOMBIE:
+            return False
+        if abs(process.create_time() - float(recorded_create_time)) > 0.01:
+            return False
+        expected_config = status.get("worker_config")
+        if expected_config:
+            try:
+                command = " ".join(process.cmdline())
+            except (psutil.AccessDenied, psutil.ZombieProcess):
+                command = ""
+            if command and str(expected_config) not in command:
+                return False
+        return True
+    except (psutil.Error, OSError):
+        return False
+
+
 def reconcile_statuses(
     state_root: str | Path,
     dataset_names: list[str],
-) -> None:
-    """Demote stale campaign-level ``running`` states after process loss."""
+) -> set[str]:
+    """Reconcile dead children while preserving any still-live training job."""
     state_root = Path(state_root)
+    active: set[str] = set()
     for name in dataset_names:
         path = _status_path(state_root, name)
         status = _read_status(path)
         if status is not None and status.get("state") == "running":
+            if _status_process_is_live(status):
+                active.add(name)
+                continue
+            result_path = status.get("worker_result_path")
+            if result_path and Path(result_path).is_file():
+                try:
+                    result = load_json(result_path)
+                except (OSError, TypeError, ValueError):
+                    result = {}
+                if result.get("state") == "done":
+                    status.update(
+                        {
+                            "state": "done",
+                            "finished_at": result.get("finished_at", utc_now()),
+                            "stats_path": result.get("stats_path"),
+                            "target_checkpoint": result.get("target_checkpoint"),
+                            "reconciled_at": utc_now(),
+                            "reconcile_reason": "child completed after orchestrator exit",
+                        }
+                    )
+                    status.pop("pid", None)
+                    status.pop("pid_create_time", None)
+                    atomic_write_json(path, status)
+                    continue
             status["state"] = "pending"
             status["reconciled_at"] = utc_now()
             status["reconcile_reason"] = "stale running state from previous orchestrator"
+            status.pop("pid", None)
+            status.pop("pid_create_time", None)
             atomic_write_json(path, status)
+    return active
 
 
 def _completed_run_matches(
@@ -549,6 +716,10 @@ def _completed_run_matches(
         stats.get("schema_version") == STATS_SCHEMA
         and stats.get("protocol_version") == PROTOCOL_VERSION
         and stats.get("protocol_conformant") is expected_protocol_conformant
+        and isinstance(stats.get("libreyolo_capabilities"), dict)
+        and stats["libreyolo_capabilities"].get("validated") is True
+        and stats["libreyolo_capabilities"].get("eval_max_det") == 500
+        and stats["libreyolo_capabilities"].get("default_eval_max_det") == 100
         and stats.get("dataset") == dataset_name
         and stats.get("dataset_version") == dataset_version_id
         and stats.get("model_key") == model_key
@@ -582,6 +753,7 @@ def _launch_child(
     gpu: str,
     log_path: Path,
     timeout_seconds: float,
+    on_started: Callable[[subprocess.Popen], None] | None = None,
 ) -> tuple[int | None, bool]:
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
@@ -591,7 +763,7 @@ def _launch_child(
         log.write(f"\n[{utc_now()}] launching on CUDA_VISIBLE_DEVICES={gpu}\n")
         log.flush()
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 [
                     sys.executable,
                     "-m",
@@ -602,11 +774,18 @@ def _launch_child(
                 env=env,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                timeout=timeout_seconds,
-                check=False,
             )
-            return completed.returncode, False
+            if on_started is not None:
+                try:
+                    on_started(process)
+                except BaseException:
+                    process.kill()
+                    process.wait()
+                    raise
+            return process.wait(timeout=timeout_seconds), False
         except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
             log.write(f"\n[{utc_now()}] dataset exceeded timeout\n")
             return None, True
 
@@ -760,16 +939,33 @@ def _run_attempt(
         "resume": resume,
         "run_dir": str(run_dir),
         "target_checkpoint": str(target_checkpoint),
+        "worker_config": str(worker_config_path),
+        "worker_result_path": str(worker_result_path),
         "started_at": utc_now(),
         "restart_reason": restart_reason,
     }
     atomic_write_json(status_path, status)
+
+    def record_process(process: subprocess.Popen) -> None:
+        import psutil
+
+        nonlocal status
+        status = dict(status)
+        status.update(
+            {
+                "pid": process.pid,
+                "pid_create_time": psutil.Process(process.pid).create_time(),
+                "launched_at": utc_now(),
+            }
+        )
+        atomic_write_json(status_path, status)
 
     exit_code, timed_out = _launch_child(
         worker_config_path,
         gpu=gpu,
         log_path=state_root / "logs" / f"{dataset_name}.log",
         timeout_seconds=timeout_seconds,
+        on_started=record_process,
     )
     if timed_out:
         worker_result = {
@@ -809,6 +1005,7 @@ def orchestrate_training(
     force: bool = False,
 ) -> dict[str, Any]:
     """Run a name-addressed dataset queue with one child process per GPU."""
+    libreyolo_capabilities = require_libreyolo_protocol_capabilities()
     spec = get_spec(model_key)
     data_dir = Path(data_dir).resolve()
     weights_root = Path(weights_root).resolve()
@@ -855,11 +1052,13 @@ def orchestrate_training(
     rerun_path = state_root / "rerun.json"
     failure_lock = threading.Lock()
 
-    reconcile_statuses(state_root, names)
+    active_running = reconcile_statuses(state_root, names)
     work: queue.Queue[str] = queue.Queue()
     skipped_done: list[str] = []
     recipe_sha256 = file_sha256(recipe_path)
     for name in names:
+        if name in active_running:
+            continue
         status = _read_status(_status_path(state_root, name))
         target = weights_root / name / spec.weight_file
         stats = weights_root / name / "stats.json"
@@ -968,6 +1167,8 @@ def orchestrate_training(
                             "target_checkpoint": worker_result.get("target_checkpoint"),
                         }
                     )
+                    final_status.pop("pid", None)
+                    final_status.pop("pid_create_time", None)
                     atomic_write_json(status_path, final_status)
                     with outcome_lock:
                         completed.append(name)
@@ -990,6 +1191,8 @@ def orchestrate_training(
                             "failure": record,
                         }
                     )
+                    final_status.pop("pid", None)
+                    final_status.pop("pid_create_time", None)
                     atomic_write_json(status_path, final_status)
                     with outcome_lock:
                         failed.append(name)
@@ -1043,7 +1246,13 @@ def orchestrate_training(
     summary = {
         "schema_version": "rf100vl.train-summary.v1",
         "protocol_version": PROTOCOL_VERSION,
-        "protocol_conformant": smoke_epochs is None,
+        "protocol_conformant": (
+            smoke_epochs is None
+            and not failed
+            and not active_running
+            and libreyolo_capabilities.get("validated") is True
+        ),
+        "libreyolo_capabilities": libreyolo_capabilities,
         "model_key": model_key,
         "recipe": {
             "file": str(recipe_path),
@@ -1057,6 +1266,7 @@ def orchestrate_training(
         "completed": sorted(completed),
         "skipped_done": sorted(skipped_done),
         "failed": sorted(failed),
+        "active_running": sorted(active_running),
         "failures_file": str(failures_path),
         "rerun_file": str(rerun_path),
         "finished_at": utc_now(),

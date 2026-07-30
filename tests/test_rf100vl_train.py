@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import sys
 from types import SimpleNamespace
 
 import numpy as np
+import psutil
 import pytest
 import torch
 import yaml
@@ -122,6 +124,30 @@ def test_dense_rfdetr_selects_fallback_and_micro_dataset_keeps_one_batch():
     assert plan["expected_batches_per_epoch_minimum"] == 1
 
 
+def test_rfdetr_l_oom_fallback_reduces_batch():
+    spec = get_spec("rfdetr-l")
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family("rfdetr"),
+        family="rfdetr",
+    )
+    facts = {
+        "max_annotations_per_image": 1,
+        "num_train_images": 20,
+    }
+
+    primary = rf100vl_train.select_batch_plan(recipe, spec, facts)
+    fallback = rf100vl_train.select_batch_plan(
+        recipe,
+        spec,
+        facts,
+        force_fallback=True,
+    )
+
+    assert primary["physical_batch"] == 2
+    assert fallback["physical_batch"] == 1
+    assert fallback["gradient_accumulation_steps"] == 16
+
+
 def test_fp32_recipe_disables_amp_and_freezes_selection_contract(tmp_path):
     spec = get_spec("yolov9s")
     recipe = rf100vl_train.load_recipe(
@@ -148,6 +174,34 @@ def test_fp32_recipe_disables_amp_and_freezes_selection_contract(tmp_path):
     assert kwargs["patience"] == 0
     assert kwargs["ema"] is True
     assert kwargs["max_det"] == 500
+    assert kwargs["eval_max_det"] == 500
+
+
+def test_capability_guard_rejects_pre_protocol_libreyolo(monkeypatch):
+    from dataclasses import dataclass
+
+    @dataclass
+    class OldTrainConfig:
+        amp_dtype: str = "float16"
+        max_det: int = 300
+
+    @dataclass
+    class OldValidationConfig:
+        data: str
+        amp_dtype: str = "float16"
+        max_det: int = 300
+
+    class OldValidator:
+        pass
+
+    monkeypatch.setattr(
+        rf100vl_train,
+        "_load_libreyolo_protocol_types",
+        lambda: (OldTrainConfig, OldValidationConfig, OldValidator),
+    )
+
+    with pytest.raises(RuntimeError, match="cannot enforce"):
+        rf100vl_train.require_libreyolo_protocol_capabilities()
 
 
 def test_reconcile_demotes_stale_running_atomically(tmp_path):
@@ -160,10 +214,78 @@ def test_reconcile_demotes_stale_running_atomically(tmp_path):
             "dataset": "aerial-cows",
         },
     )
-    rf100vl_train.reconcile_statuses(tmp_path, ["aerial-cows"])
+    active = rf100vl_train.reconcile_statuses(tmp_path, ["aerial-cows"])
     status = json.loads(path.read_text(encoding="utf-8"))
+    assert active == set()
     assert status["state"] == "pending"
     assert status["reconcile_reason"]
+
+
+def test_reconcile_preserves_live_child(tmp_path, monkeypatch):
+    path = tmp_path / "aerial-cows.json"
+    atomic_write_json(
+        path,
+        {
+            "schema_version": rf100vl_train.STATUS_SCHEMA,
+            "state": "running",
+            "dataset": "aerial-cows",
+            "pid": 123,
+            "pid_create_time": 456.0,
+        },
+    )
+    monkeypatch.setattr(
+        rf100vl_train,
+        "_status_process_is_live",
+        lambda status: True,
+    )
+
+    active = rf100vl_train.reconcile_statuses(tmp_path, ["aerial-cows"])
+
+    assert active == {"aerial-cows"}
+    assert json.loads(path.read_text(encoding="utf-8"))["state"] == "running"
+
+
+def test_status_process_identity_rejects_pid_reuse():
+    process = psutil.Process(os.getpid())
+    live = {
+        "pid": process.pid,
+        "pid_create_time": process.create_time(),
+    }
+
+    assert rf100vl_train._status_process_is_live(live)
+    assert not rf100vl_train._status_process_is_live(
+        {**live, "pid_create_time": process.create_time() - 10}
+    )
+
+
+def test_reconcile_promotes_completed_orphan_result(tmp_path):
+    result_path = tmp_path / "worker-result.json"
+    atomic_write_json(
+        result_path,
+        {
+            "state": "done",
+            "stats_path": "stats.json",
+            "target_checkpoint": "best.pt",
+            "finished_at": "done-time",
+        },
+    )
+    path = tmp_path / "aerial-cows.json"
+    atomic_write_json(
+        path,
+        {
+            "schema_version": rf100vl_train.STATUS_SCHEMA,
+            "state": "running",
+            "dataset": "aerial-cows",
+            "worker_result_path": str(result_path),
+        },
+    )
+
+    active = rf100vl_train.reconcile_statuses(tmp_path, ["aerial-cows"])
+    status = json.loads(path.read_text(encoding="utf-8"))
+
+    assert active == set()
+    assert status["state"] == "done"
+    assert status["stats_path"] == "stats.json"
 
 
 def test_done_skip_requires_current_recipe_version_and_annotations(tmp_path):
@@ -187,6 +309,11 @@ def test_done_skip_requires_current_recipe_version_and_annotations(tmp_path):
         "schema_version": rf100vl_train.STATS_SCHEMA,
         "protocol_version": rf100vl_train.PROTOCOL_VERSION,
         "protocol_conformant": True,
+            "libreyolo_capabilities": {
+                "validated": True,
+                "eval_max_det": 500,
+                "default_eval_max_det": 100,
+            },
         "dataset": "aerial-cows",
         "dataset_version": 4,
         "model_key": "yolov9s",
@@ -244,6 +371,18 @@ def test_worker_generates_stats_and_copies_best_checkpoint(tmp_path, monkeypatch
         sys.modules,
         "libreyolo",
         SimpleNamespace(LibreYOLO=FakeLibreYOLO),
+    )
+    monkeypatch.setattr(
+        rf100vl_train,
+        "require_libreyolo_protocol_capabilities",
+        lambda: {
+            "validated": True,
+            "version": "test",
+            "amp_dtype": "bfloat16",
+            "prediction_max_det": 500,
+            "eval_max_det": 500,
+            "default_eval_max_det": 100,
+        },
     )
     config = {
         "model_key": "yolov9s",

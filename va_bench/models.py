@@ -301,7 +301,7 @@ def resolve_tensorrt_weights(spec: ModelSpec, weights_dir: str | Path) -> Path:
     """Return the path to a user-supplied TensorRT engine for this spec.
 
     Looks for ``{weight_file_stem}.engine`` in ``weights_dir``. Raises
-    ``FileNotFoundError`` if missing — we never auto-build from ``.pt``/``.onnx``.
+    ``FileNotFoundError`` if missing; we never auto-build from ``.pt``/``.onnx``.
     The engine is expected to ship with a ``<engine>.json`` metadata sidecar.
     """
     stem = Path(spec.weight_file).stem

@@ -17,6 +17,8 @@ _scratch_*.py
 *.csv
 !pyproject.toml
 data/
+!va_bench/data/
+!va_bench/data/rf100vl_domains.json
 datasets/
 coco/
 *.pt

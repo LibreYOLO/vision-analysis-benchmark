@@ -42,7 +42,7 @@ exact pin regardless of tagging.
 
 ## Model / Backend Support
 
-The registry covers 70 open LibreYOLO detection variants:
+The registry covers 67 open LibreYOLO detection variants:
 
 | Family | Variants | PyTorch | ONNX | Notes |
 |---|---:|---:|---:|---|
@@ -58,10 +58,10 @@ The registry covers 70 open LibreYOLO detection variants:
 | D-FINE | 5 | Yes | Yes |  |
 | PicoDet | 3 | Yes | Yes |  |
 | EC / EdgeCrafter | 4 | Yes | Yes |  |
-| DAMO-YOLO | 6 | Yes | Yes | Open variants only. |
 | RTMDet | 5 | Yes | Yes |  |
+| YOLO-NAS | 3 | Yes | Yes | LibreYOLO's open retrained weights. |
 
-YOLO-NAS is intentionally excluded because the weights are gated.
+DAMO-YOLO is not registered.
 
 `TensorRT` (FP16) is supported for any registered variant for which you supply a
 LibreYOLO-built `.engine` (plus its `.engine.json` sidecar) in `--weights-dir`,

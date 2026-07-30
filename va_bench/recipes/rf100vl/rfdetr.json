@@ -27,7 +27,11 @@
     "n": {"imgsz": 384},
     "s": {"imgsz": 512},
     "m": {"imgsz": 576},
-    "l": {"imgsz": 704, "physical_batch": 2}
+    "l": {
+      "imgsz": 704,
+      "physical_batch": 2,
+      "fallback_physical_batch": 1
+    }
   },
   "train": {
     "optimizer": "adamw",
