@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -19,6 +20,34 @@ def test_resolve_direct_url_commit_reads_pep610_metadata(monkeypatch):
     monkeypatch.setattr(hardware.importlib_metadata, "distribution", lambda _: FakeDist())
 
     assert hardware._resolve_direct_url_commit("libreyolo") == "abc123"
+
+
+def test_resolve_git_dirty_tracks_editable_checkout(tmp_path):
+    module = tmp_path / "pkg" / "module.py"
+    module.parent.mkdir()
+    module.write_text("VALUE = 1\n")
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "initial",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    assert hardware._resolve_git_dirty(str(module)) is False
+    module.write_text("VALUE = 2\n")
+    assert hardware._resolve_git_dirty(str(module)) is True
 
 
 def test_assert_supported_pytorch_model_api_raises_clear_error():

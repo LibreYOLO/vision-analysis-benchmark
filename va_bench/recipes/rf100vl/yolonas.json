@@ -1,0 +1,46 @@
+{
+  "schema_version": "rf100vl.recipe.v1",
+  "family": "yolonas",
+  "source": {
+    "repository": "https://github.com/LibreYOLO/libreyolo",
+    "commit": "3e3c9dffc9e4bd41a363f1dd6ca1c736e145a5d8",
+    "paths": ["tests/e2e/configs/yolonas.yaml", "libreyolo/training/config.py"],
+    "license": "MIT",
+    "normalization": "RF5 family knobs under the RF100-VL fixed skeleton"
+  },
+  "protocol": {
+    "epochs": 100,
+    "effective_batch": 16,
+    "physical_batch": 16,
+    "selection_metric": "valid_mAP50_95",
+    "eval_interval": 1,
+    "patience": 0,
+    "ema": true,
+    "seed": 0,
+    "precision": "fp32"
+  },
+  "sizes": {
+    "s": {"imgsz": 640, "lr0": 0.0005},
+    "m": {"imgsz": 640, "lr0": 0.0005},
+    "l": {"imgsz": 640, "lr0": 0.0005}
+  },
+  "train": {
+    "optimizer": "adamw",
+    "momentum": 0.9,
+    "weight_decay": 0.00001,
+    "scheduler": "cos",
+    "warmup_epochs": 1,
+    "warmup_lr_start": 0.000001,
+    "no_aug_epochs": 0,
+    "min_lr_ratio": 0.1,
+    "mosaic_prob": 0.0,
+    "mixup_prob": 0.5,
+    "hsv_prob": 0.5,
+    "flip_prob": 0.5,
+    "degrees": 0.0,
+    "translate": 0.25,
+    "shear": 0.0,
+    "ema_decay": 0.9997,
+    "workers": 4
+  }
+}

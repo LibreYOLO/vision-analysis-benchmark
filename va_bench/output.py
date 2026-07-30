@@ -74,12 +74,14 @@ def assemble_result(
     device_type: str,
     provider: str,
     hardware: dict[str, Any],
-    software: dict[str, str],
+    software: dict[str, Any],
     actual_input_size: int,
     conf: float,
     iou: float,
     max_det: int,
     fmt: str = "pytorch",
+    precision: str = "fp32",
+    repro: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the final result dict matching the website's RawBenchmark schema."""
     gflops = spec.paper_flops_g if spec.paper_flops_g > 0 else 0.0
@@ -90,13 +92,16 @@ def assemble_result(
 
     return {
         "schema_version": "va.submission.v1",
-        "submission_id": f"{spec.key}-{fmt}-{provider}-{hardware_id}-{now.strftime('%Y%m%dT%H%M%SZ')}",
+        "submission_id": (
+            f"{spec.key}-{fmt}-{provider}-{hardware_id}-{now.strftime('%Y%m%dT%H%M%SZ')}"
+        ),
         "created_at": created_at,
         "benchmark": {
             "harness": "vision-analysis-benchmark",
             "harness_version": __version__,
             "libreyolo_version": software.get("libreyolo", "unknown"),
             "libreyolo_commit": software.get("libreyolo_commit", "unknown"),
+            "libreyolo_dirty": software.get("libreyolo_dirty"),
         },
         "model": {
             "id": spec.key,
@@ -175,10 +180,11 @@ def assemble_result(
         },
         "runtime": {
             "format": fmt,
-            "precision": "fp32",
+            "precision": precision,
             "provider": provider,
             "device": device_type,
         },
+        "repro": repro or {},
     }
 
 
@@ -196,8 +202,13 @@ def save_result(result: dict[str, Any], output_dir: str | Path) -> Path:
     hardware_id = result.get("hardware", {}).get("id") or detect_hardware_id(result["hardware"])
     timestamp = result.get("created_at", "")
     timestamp_slug = (
-        timestamp.replace("-", "").replace(":", "").replace(".", "").replace("+0000", "Z")
-        .replace("+00:00", "Z").replace("T", "T").replace("Z", "Z")
+        timestamp.replace("-", "")
+        .replace(":", "")
+        .replace(".", "")
+        .replace("+0000", "Z")
+        .replace("+00:00", "Z")
+        .replace("T", "T")
+        .replace("Z", "Z")
     )
     timestamp_slug = timestamp_slug.rstrip("Z") + "Z" if timestamp_slug else "unknown"
     filename = f"{model_id}__{fmt}__{provider}__{hardware_id}__{timestamp_slug}.json"

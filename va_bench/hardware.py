@@ -23,9 +23,10 @@ def get_gpu_info() -> dict[str, Any]:
 
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total,driver_version",
-             "--format=csv,noheader"],
-            capture_output=True, text=True, check=True,
+            ["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            check=True,
         )
         parts = result.stdout.strip().split(", ")
         if len(parts) >= 3:
@@ -46,6 +47,7 @@ def get_gpu_info() -> dict[str, Any]:
                 gpu_name = "CPU"
 
     import torch
+
     cuda_version = torch.version.cuda if torch.cuda.is_available() else "N/A"
 
     return {
@@ -61,7 +63,9 @@ def _get_mac_chip() -> str:
     try:
         result = subprocess.run(
             ["sysctl", "-n", "machdep.cpu.brand_string"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return result.stdout.strip()
     except (FileNotFoundError, subprocess.CalledProcessError):
@@ -74,9 +78,9 @@ def get_cpu_info() -> tuple[str, int]:
         if platform.system() == "Linux":
             with open("/proc/cpuinfo") as f:
                 lines = f.readlines()
-            model_lines = [l for l in lines if "model name" in l]
+            model_lines = [line for line in lines if "model name" in line]
             cpu_model = model_lines[0].split(":")[1].strip() if model_lines else "Unknown"
-            cpu_cores = len([l for l in lines if "processor" in l])
+            cpu_cores = len([line for line in lines if "processor" in line])
         elif platform.system() == "Darwin":
             cpu_model = _get_mac_chip()
             cpu_cores = os.cpu_count() or 0
@@ -94,40 +98,61 @@ def get_system_memory_gb() -> int:
     """Return total system RAM in GB."""
     try:
         import psutil
-        return psutil.virtual_memory().total // (1024 ** 3)
+
+        return psutil.virtual_memory().total // (1024**3)
     except ImportError:
         if platform.system() == "Linux":
             try:
                 with open("/proc/meminfo") as f:
                     for line in f:
                         if "MemTotal" in line:
-                            return int(line.split()[1]) // (1024 ** 2)
+                            return int(line.split()[1]) // (1024**2)
             except Exception:
                 pass
     return 0
 
 
-def get_software_info() -> dict[str, str]:
+def get_software_info() -> dict[str, Any]:
     """Return Python, PyTorch, LibreYOLO, and (if present) ONNX Runtime versions."""
     import torch
 
     libreyolo_version = "unknown"
     libreyolo_commit = "unknown"
+    libreyolo_dirty: bool | None = None
     try:
         import libreyolo
+
         libreyolo_version = getattr(libreyolo, "__version__", "dev")
         libreyolo_commit = (
             _resolve_git_commit(getattr(libreyolo, "__file__", None))
             or _resolve_direct_url_commit("libreyolo")
             or "unknown"
         )
+        libreyolo_dirty = _resolve_git_dirty(getattr(libreyolo, "__file__", None))
     except ImportError:
         pass
 
     onnxruntime_version = "not-installed"
     try:
         import onnxruntime
+
         onnxruntime_version = onnxruntime.__version__
+    except ImportError:
+        pass
+
+    onnx_version = "not-installed"
+    try:
+        import onnx
+
+        onnx_version = onnx.__version__
+    except ImportError:
+        pass
+
+    tensorrt_version = "not-installed"
+    try:
+        import tensorrt
+
+        tensorrt_version = tensorrt.__version__
     except ImportError:
         pass
 
@@ -136,7 +161,10 @@ def get_software_info() -> dict[str, str]:
         "torch": torch.__version__,
         "libreyolo": libreyolo_version,
         "libreyolo_commit": libreyolo_commit,
+        "libreyolo_dirty": libreyolo_dirty,
         "onnxruntime": onnxruntime_version,
+        "onnx": onnx_version,
+        "tensorrt": tensorrt_version,
     }
 
 
@@ -158,6 +186,28 @@ def _resolve_git_commit(module_file: str | None) -> str | None:
             )
             commit = result.stdout.strip()
             return commit or None
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return None
+    return None
+
+
+def _resolve_git_dirty(module_file: str | None) -> bool | None:
+    """Return whether an editable/local package checkout has uncommitted changes."""
+    if not module_file:
+        return None
+
+    path = Path(module_file).resolve()
+    for parent in path.parents:
+        if not (parent / ".git").exists():
+            continue
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(parent), "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return bool(result.stdout.strip())
         except (FileNotFoundError, subprocess.CalledProcessError):
             return None
     return None
