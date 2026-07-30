@@ -1,0 +1,1012 @@
+{
+  "checked_at": "2026-07-30",
+  "datasets": [
+    {
+      "classes": 7,
+      "dataset": "-grccs",
+      "images": 1183,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "-grccs-yi3bi-sge1z-anexl-hayl",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/-grccs-yi3bi-sge1z-anexl-hayl",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "13-lkc01",
+      "images": 331,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "13-lkc01-axmll-qtoq",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/13-lkc01-axmll-qtoq",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 11,
+      "dataset": "2024-frc",
+      "images": 1402,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "2024-frc-aanyl-eqitq-7bqgi-hcvu",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/2024-frc-aanyl-eqitq-7bqgi-hcvu",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 6,
+      "dataset": "actions",
+      "images": 4090,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "actions-zzid2-zb1hq-amih-rsbpp",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/actions-zzid2-zb1hq-amih-rsbpp",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 12,
+      "dataset": "activity-diagrams",
+      "images": 378,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "activity-diagrams-qdobr-dtraz-lhxdc-cbow",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/activity-diagrams-qdobr-dtraz-lhxdc-cbow",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "aerial-airport",
+      "images": 333,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "aerial-airport-7ap9o-ddgc-ftba6",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/aerial-airport-7ap9o-ddgc-ftba6",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "aerial-cows",
+      "images": 1107,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "aerial-cows-kt2wd-3jxcj-uvfx",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/aerial-cows-kt2wd-3jxcj-uvfx",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "aerial-pool",
+      "images": 943,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "aerial-pool-vlhhw-rzhef-qlaz",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/aerial-pool-vlhhw-rzhef-qlaz",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "aerial-sheep",
+      "images": 1726,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "aerial-sheep-y13yz-hs4wl-wzyo",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/aerial-sheep-y13yz-hs4wl-wzyo",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "aircraft-turnaround-dataset",
+      "images": 1002,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "aircraft-turnaround-dataset-5dnjf-orrm3-hffk",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/aircraft-turnaround-dataset-5dnjf-orrm3-hffk",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 10,
+      "dataset": "all-elements",
+      "images": 696,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "all-elements-mebv-mmhjp",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/all-elements-mebv-mmhjp",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 7,
+      "dataset": "apoce-aerial-photographs-for-object-detection-of-construction-equipment",
+      "images": 928,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "apoce-aerial-photographs-for-object-detection-of-construction-equipment-6raie-ur6qc-absn",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/apoce-aerial-photographs-for-object-detection-of-construction-equipment-6raie-ur6qc-absn",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 7,
+      "dataset": "aquarium-combined",
+      "images": 637,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "aquarium-combined-gjvb-oj3k4",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/aquarium-combined-gjvb-oj3k4",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 6,
+      "dataset": "asphaltdistressdetection",
+      "images": 3144,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "asphaltdistressdetection-taf76-jcxx",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/asphaltdistressdetection-taf76-jcxx",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 18,
+      "dataset": "ball",
+      "images": 441,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "ball-qgqhv-2mtfk-ch2i9-ejgb",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/ball-qgqhv-2mtfk-ch2i9-ejgb",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "bees",
+      "images": 6640,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "bees-jt5in-6pbpl-aplx",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/bees-jt5in-6pbpl-aplx",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "bibdetection",
+      "images": 1237,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "bibdetection-swtfw-z85dg-mzqx",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/bibdetection-swtfw-z85dg-mzqx",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 7,
+      "dataset": "buoy-onboarding",
+      "images": 564,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "buoy-onboarding-uys2h-lbtek-ttiu",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/buoy-onboarding-uys2h-lbtek-ttiu",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "cable-damage",
+      "images": 1317,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "cable-damage-z5nlo-9eslb-itoh",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/cable-damage-z5nlo-9eslb-itoh",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "canalstenosis",
+      "images": 500,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "canalstenosis-azjxm-cpkp",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/canalstenosis-azjxm-cpkp",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "car-logo-detection",
+      "images": 166,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "car-logo-detection-cxyfl-snnqi-wfqa",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/car-logo-detection-cxyfl-snnqi-wfqa",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 3,
+      "dataset": "circuit-voltages",
+      "images": 132,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "circuit-voltages-ysajo-tbpd",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/circuit-voltages-ysajo-tbpd",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 34,
+      "dataset": "clashroyalechardetector",
+      "images": 1480,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "clashroyalechardetector-xus94-giyri-voeq",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/clashroyalechardetector-xus94-giyri-voeq",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "cod-mw-warzone",
+      "images": 3156,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "cod-mw-warzone-pkski-akqif-ojfh",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/cod-mw-warzone-pkski-akqif-ojfh",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "conveyor-t-shirts",
+      "images": 450,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "conveyor-t-shirts-htpwe-koqei-gs0tv-qymy",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/conveyor-t-shirts-htpwe-koqei-gs0tv-qymy",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "countingpills",
+      "images": 2186,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "countingpills-exf0r-gfkt",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/countingpills-exf0r-gfkt",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "crystal-clean-brain-tumors-mri-dataset",
+      "images": 240,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "crystal-clean-brain-tumors-mri-dataset-hzb2f-plsq",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/crystal-clean-brain-tumors-mri-dataset-hzb2f-plsq",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "dataconvert",
+      "images": 179,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "dataconvert-9e6zr-lstqv-hiro",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/dataconvert-9e6zr-lstqv-hiro",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "deepfruits",
+      "images": 170,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "deepfruits-mango-xs1as-tkygw-uxnm",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/deepfruits-mango-xs1as-tkygw-uxnm",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 6,
+      "dataset": "deeppcb",
+      "images": 1500,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "deeppcb-4dhir-cudbt-zlst",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/deeppcb-4dhir-cudbt-zlst",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "defect-detection",
+      "images": 1876,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "defect-detection-yjplx-fxobh-amdi-0660v",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/defect-detection-yjplx-fxobh-amdi-0660v",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "dentalai",
+      "images": 1269,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "dentalai-i4clz-fsuo-ung2d",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/dentalai-i4clz-fsuo-ung2d",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "electric-pylon-detection-in-rsi",
+      "images": 1498,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "electric-pylon-detection-in-rsi-q6qra-psut",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/electric-pylon-detection-in-rsi-q6qra-psut",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "everdaynew",
+      "images": 363,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "everdaynew-6ej0k-lyqxk-zzbi",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/everdaynew-6ej0k-lyqxk-zzbi",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 13,
+      "dataset": "exploratorium-daphnia",
+      "images": 335,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "exploratorium-daphnia-iacgs-5s9ur-qibo",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/exploratorium-daphnia-iacgs-5s9ur-qibo",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "flir-camera-objects",
+      "images": 11809,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "flir-camera-objects-tdqp-z83s3",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/flir-camera-objects-tdqp-z83s3",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "floating-waste",
+      "images": 3031,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "floating-waste-8deje-lrbq",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/floating-waste-8deje-lrbq",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "football-player-detection",
+      "images": 1232,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "football-player-detection-kucab-fbcl7-uj1oi-gxtg",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/football-player-detection-kucab-fbcl7-uj1oi-gxtg",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 7,
+      "dataset": "fruitjes",
+      "images": 5970,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "fruitjes-r9tou-fjfb8-gcke",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/fruitjes-r9tou-fjfb8-gcke",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "grapes-5",
+      "images": 315,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "grapes-5-fzajg-zfi5c-uzov",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/grapes-5-fzajg-zfi5c-uzov",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "grass-weeds",
+      "images": 2478,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "grass-weeds-ru5xu-mutb1-jvwl",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/grass-weeds-ru5xu-mutb1-jvwl",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "gwhd2021",
+      "images": 6251,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "gwhd2021-atsv-ef8w9",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/gwhd2021-atsv-ef8w9",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "halo-infinite-angel-videogame",
+      "images": 540,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "halo-infinite-angel-videogame-cqrgf-fbcm",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/halo-infinite-angel-videogame-cqrgf-fbcm",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "human-detection-in-floods",
+      "images": 441,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "human-detection-in-floods-a6aun-5xvpd-2hvjd-sbyy",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/human-detection-in-floods-a6aun-5xvpd-2hvjd-sbyy",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "inbreast",
+      "images": 641,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "inbreast-zzlbj-e5zj8-bzvi",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/inbreast-zzlbj-e5zj8-bzvi",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 9,
+      "dataset": "infraredimageofpowerequipment",
+      "images": 737,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "infraredimageofpowerequipment-kt4us-zqnd",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/infraredimageofpowerequipment-kt4us-zqnd",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 6,
+      "dataset": "into-the-vale",
+      "images": 1302,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "into-the-vale-sg5al-fiqob-xh9rj-ixym",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/into-the-vale-sg5al-fiqob-xh9rj-ixym",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 8,
+      "dataset": "invoice-processing",
+      "images": 104,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "invoice-processing-nl2cz-d87if-be5rs-wkgh",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/invoice-processing-nl2cz-d87if-be5rs-wkgh",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 3,
+      "dataset": "ism-band-packet-detection",
+      "images": 370,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "ism-band-packet-detection-e7s7w-mpkt",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/ism-band-packet-detection-e7s7w-mpkt",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "jellyfish",
+      "images": 629,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "jellyfish-pqc6u-ftpov-gjvb",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/jellyfish-pqc6u-ftpov-gjvb",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 8,
+      "dataset": "l10ul502",
+      "images": 1493,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "l10ul502-6ann9-yumi",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/l10ul502-6ann9-yumi",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "label-printing-defect-version-2",
+      "images": 793,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "label-printing-defect-version-2-xhwap-vrcc",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/label-printing-defect-version-2-xhwap-vrcc",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "lacrosse-object-detection",
+      "images": 500,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "lacrosse-object-detection-uxkt-vaybh",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/lacrosse-object-detection-uxkt-vaybh",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "liver-disease",
+      "images": 3964,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "liver-disease-jyvvu-fash",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/liver-disease-jyvvu-fash",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 16,
+      "dataset": "macro-segmentation",
+      "images": 1195,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "macro-segmentation-kaer8-yajkb-blok",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/macro-segmentation-kaer8-yajkb-blok",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 34,
+      "dataset": "mahjong",
+      "images": 2135,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "mahjong-vtacs-mexax-m4vyu-sjtd",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/mahjong-vtacs-mexax-m4vyu-sjtd",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "marine-sharks",
+      "images": 3365,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "marine-sharks-jqnfk-skffz-iflt",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/marine-sharks-jqnfk-skffz-iflt",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "needle-base-tip-min-max",
+      "images": 1498,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "needle-base-tip-min-max-u87vi-wzsrt-kjyu",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/needle-base-tip-min-max-u87vi-wzsrt-kjyu",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "new-defects-in-wood",
+      "images": 1269,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "new-defects-in-wood-uewd1-tffp-dpoyu",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/new-defects-in-wood-uewd1-tffp-dpoyu",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 8,
+      "dataset": "nih-xray",
+      "images": 880,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "nih-xray-itazg-xeoi",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/nih-xray-itazg-xeoi",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "orgharvest",
+      "images": 248,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "orgharvest-vgfsu-ocxq",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/orgharvest-vgfsu-ocxq",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 8,
+      "dataset": "orionproducts",
+      "images": 586,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "orionproducts-vtl2z-puhv-bhzb1",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/orionproducts-vtl2z-puhv-bhzb1",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 19,
+      "dataset": "paper-parts",
+      "images": 11331,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "paper-parts-rmrg-6ave2",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/paper-parts-rmrg-6ave2",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "peixos-fish",
+      "images": 1190,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "peixos-fish-eyltk-rpno",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/peixos-fish-eyltk-rpno",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "penguin-finder-seg",
+      "images": 562,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "penguin-finder-seg-va0wf-ygkoq-oznn",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/penguin-finder-seg-va0wf-ygkoq-oznn",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "pig-detection",
+      "images": 6148,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "pig-detection-kaimq-a8ret-abpd",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/pig-detection-kaimq-a8ret-abpd",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "pill",
+      "images": 1392,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "pill-j8vgy-o5udx-7xdez-ehbb",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/pill-j8vgy-o5udx-7xdez-ehbb",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 6,
+      "dataset": "recode-waste",
+      "images": 2503,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "recode-waste-czvmg-yxsw-fj9b9",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/recode-waste-czvmg-yxsw-fj9b9",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "roboflow-trained-dataset",
+      "images": 1960,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "roboflow-trained-dataset-j7nxb-lxob",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/roboflow-trained-dataset-j7nxb-lxob",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "screwdetectclassification",
+      "images": 370,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "screwdetectclassification-xrrbi-hkwlh-lybq",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/screwdetectclassification-xrrbi-hkwlh-lybq",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "sea-cucumbers-new-tiles",
+      "images": 2025,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "sea-cucumbers-new-tiles-kbu7c-cegb",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/sea-cucumbers-new-tiles-kbu7c-cegb",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "signatures",
+      "images": 341,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "signatures-xc8up-ytnch-qzw1d-pmbl",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/signatures-xc8up-ytnch-qzw1d-pmbl",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 11,
+      "dataset": "smd-components",
+      "images": 2050,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "smd-components-dnljh-poxfb-trqdw-7n9xb-ryth",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/smd-components-dnljh-poxfb-trqdw-7n9xb-ryth",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 3,
+      "dataset": "soda-bottles",
+      "images": 2249,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "soda-bottles-haga-guxba",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/soda-bottles-haga-guxba",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 6,
+      "dataset": "speech-bubbles-detection",
+      "images": 1806,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "speech-bubbles-detection-r22zt-ou0u6-jols",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/speech-bubbles-detection-r22zt-ou0u6-jols",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 3,
+      "dataset": "spinefrxnormalvindr",
+      "images": 208,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "spinefrxnormalvindr-lt1cn-ryhy",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/spinefrxnormalvindr-lt1cn-ryhy",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "sssod",
+      "images": 443,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "sssod-uaagn-txmx",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/sssod-uaagn-txmx",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "stomata-cells",
+      "images": 2105,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "stomata-cells-upfae-ngum",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/stomata-cells-upfae-ngum",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 22,
+      "dataset": "taco-trash-annotations-in-context",
+      "images": 1381,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "taco-trash-annotations-in-context-dtyly-awiq",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/taco-trash-annotations-in-context-dtyly-awiq",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 6,
+      "dataset": "the-dreidel-project",
+      "images": 540,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "the-dreidel-project-anzyr-zejm-pekg0",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/the-dreidel-project-anzyr-zejm-pekg0",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "thermal-cheetah",
+      "images": 125,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "thermal-cheetah-my4dp-zvgwh-ooto",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/thermal-cheetah-my4dp-zvgwh-ooto",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "tomatoes-2",
+      "images": 1014,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "tomatoes-2-2wvhj-aml8q-mpzp",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/tomatoes-2-2wvhj-aml8q-mpzp",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "trail-camera",
+      "images": 1307,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "trail-camera-egos-ad3zq",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/trail-camera-egos-ad3zq",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 2,
+      "dataset": "train",
+      "images": 617,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "train-i4unu-qkluh-mdec",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/train-i4unu-qkluh-mdec",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "truck-movement",
+      "images": 1023,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "truck-movement-qv1up-elxpj-ytsp",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/truck-movement-qv1up-elxpj-ytsp",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "tube",
+      "images": 367,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "tube-4rv8o-tyakk-ds4px-vtal",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/tube-4rv8o-tyakk-ds4px-vtal",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 7,
+      "dataset": "uavdet-small",
+      "images": 1000,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "uavdet-small-txtvh-ysli",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/uavdet-small-txtvh-ysli",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 32,
+      "dataset": "ufba-425",
+      "images": 572,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "ufba-425-asgxh-djrs",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/ufba-425-asgxh-djrs",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "underwater-objects",
+      "images": 7252,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "underwater-objects-5v7p8-j8co7-hhpwk-fyou",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/underwater-objects-5v7p8-j8co7-hhpwk-fyou",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "urine-analysis1",
+      "images": 499,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "urine-analysis1-2lol7-onpk",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/urine-analysis1-2lol7-onpk",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "varroa-mites-detection--test-set",
+      "images": 942,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "varroa-mites-detection-test-set-1irzb-gsig-8ecee",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/varroa-mites-detection-test-set-1irzb-gsig-8ecee",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 10,
+      "dataset": "water-meter",
+      "images": 684,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "water-meter-jbktv-7vz5k-ftoz-z2ysc",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/water-meter-jbktv-7vz5k-ftoz-z2ysc",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 3,
+      "dataset": "wb-prova",
+      "images": 1447,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "wb-prova-stqnm-rbvg-rhu1a",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/wb-prova-stqnm-rbvg-rhu1a",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 5,
+      "dataset": "weeds4",
+      "images": 376,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "weeds4-evltl-grf8n-zfn7s-ecuv",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/weeds4-evltl-grf8n-zfn7s-ecuv",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 4,
+      "dataset": "wheel-defect-detection",
+      "images": 309,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "wheel-defect-detection-e53jb-38chk-ytwg",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/wheel-defect-detection-e53jb-38chk-ytwg",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "wildfire-smoke",
+      "images": 737,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "wildfire-smoke-myxt-becdf",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/wildfire-smoke-myxt-becdf",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 11,
+      "dataset": "wine-labels",
+      "images": 4642,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "wine-labels-3pmp5-lrsge-zbuo",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/wine-labels-3pmp5-lrsge-zbuo",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 6,
+      "dataset": "x-ray-id",
+      "images": 3839,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "x-ray-id-zfisb-dyjv-vv4be",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/x-ray-id-zfisb-dyjv-vv4be",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "xray",
+      "images": 1035,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "xray-2vqog-u6ggy-gqwl",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/xray-2vqog-u6ggy-gqwl",
+      "verdict": "OK - permissive"
+    },
+    {
+      "classes": 1,
+      "dataset": "zebrasatasturias",
+      "images": 383,
+      "license": "MIT",
+      "public": true,
+      "universe_slug": "zebrasatasturias-nzsnv-cqvl",
+      "universe_url": "https://universe.roboflow.com/rf100-vl/zebrasatasturias-nzsnv-cqvl",
+      "verdict": "OK - permissive"
+    }
+  ],
+  "method": "project.license from GET https://api.roboflow.com/rf100-vl/<slug>, one call per project, cross-validated against the 'License:' line in the README.dataset.txt shipped inside downloaded exports",
+  "schema_version": "rf100vl.licenses.v1",
+  "upstream_statements": {
+    "benchmark_repo_readme": "github.com/roboflow/rf100-vl states Apache-2.0 as a blanket claim covering the repository and, by implication, the datasets",
+    "conflict": "The blanket Apache-2.0 claim and the per-project MIT fields disagree about which licence governs the data. Both are permissive and both permit redistribution and derivative works with notice retention, so the conflict does not change what we may do. We rely on the per-project field because it is what each uploader actually set, and we preserve every dataset's own README.dataset.txt so a downstream reader can check for themselves.",
+    "per_project_api": "every one of the 100 Universe projects reports its own license, and all 100 report MIT"
+  }
+}

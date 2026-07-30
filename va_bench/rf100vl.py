@@ -29,7 +29,9 @@ future open-vocabulary models whose class space is prompt-defined.
 
 from __future__ import annotations
 
+import gzip
 import json
+import os
 import time
 import warnings
 from pathlib import Path
@@ -55,6 +57,7 @@ from .rf100vl_data import (
     load_domain_manifest,
     load_json,
     load_version_lock,
+    long_path,
     validate_dataset_names,
     version_lock_sha256,
 )
@@ -450,11 +453,64 @@ def _dataset_cache_path(
     return root / dataset_name / f"{fingerprint}.json"
 
 
+PREDICTIONS_SCHEMA = "rf100vl.predictions.v1"
+
+
+def _write_predictions(
+    cache_path: Path,
+    fingerprint: str,
+    predictions: list[dict[str, Any]],
+) -> Path:
+    """Persist the raw COCO detections beside the per-dataset result.
+
+    Without these, the published reproducibility story ("rescore from the JSONs
+    with pycocotools, no GPU needed") does not hold: the detections were built
+    in memory and discarded, so nobody could recheck a score without repeating
+    the whole campaign. Gzipped because at conf 0.001 and max_det 500 these are
+    the largest artifact the run produces.
+    """
+    # Store only the four fields COCO detection scoring reads. pycocotools'
+    # loadRes MUTATES the prediction dicts in place, stamping on id, iscrowd,
+    # area and a segmentation polygon that merely re-encodes the box corners.
+    # Since these are written after evaluation, that derived padding would
+    # otherwise be persisted: measured at 81% of the file, or 431 MB of waste
+    # across a 100-dataset run. Box coordinates are rounded to 1/100 px, far
+    # below any IoU threshold's sensitivity; scores keep FULL precision because
+    # AP depends on their ranking and rounding could introduce ties.
+    slim = [
+        {
+            "image_id": d["image_id"],
+            "category_id": d["category_id"],
+            "bbox": [round(float(v), 2) for v in d["bbox"]],
+            "score": float(d["score"]),
+        }
+        for d in predictions
+    ]
+
+    path = cache_path.with_name(f"{cache_path.stem}.predictions.json.gz")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with gzip.open(long_path(temporary), "wt", encoding="utf-8", newline="\n") as handle:
+        json.dump(
+            {
+                "schema_version": PREDICTIONS_SCHEMA,
+                "fingerprint": fingerprint,
+                "detections": slim,
+            },
+            handle,
+        )
+    os.replace(long_path(temporary), long_path(path))
+    return path
+
+
 def _load_cached_dataset_result(
     path: Path,
     fingerprint: str,
 ) -> dict[str, Any] | None:
-    if not path.exists():
+    # Path.exists() answers False (rather than raising) for a path over the
+    # Windows MAX_PATH limit, which would silently defeat resume rather than
+    # failing loudly, so ask through the same long-path shim the writer uses.
+    if not os.path.exists(long_path(path)):
         return None
     try:
         cached = load_json(path)
@@ -486,6 +542,7 @@ def benchmark_model_rf100vl(
     versions_path: str | Path | None = None,
     recipe_path: str | Path | None = None,
     per_dataset_dir: str | Path | None = None,
+    save_predictions: bool = True,
     verbose: bool = True,
 ) -> dict[str, Any]:
     """Evaluate one model across all RF100-VL datasets and aggregate.
@@ -508,7 +565,12 @@ def benchmark_model_rf100vl(
         recipe_path: Optional explicit training recipe. Otherwise recipe
             hashes are read from each checkpoint's sibling ``stats.json``.
         per_dataset_dir: Directory for atomic per-dataset result files. The
-            default is ``<data_dir>/.va-bench/eval/<model>/<format>/<split>``.
+            default is ``<weights_root>/.eval/<model>/<format>/<split>``, so the
+            dataset directory can be a read-only shared mount. Falls back to
+            ``<data_dir>/.va-bench/eval/...`` only when no weights_root is given
+            (allow_pretrained smoke runs, which are never submittable). Caches
+            written by earlier versions live at the old path; pass it here to
+            reuse them, otherwise those datasets simply re-evaluate.
 
     Returns:
         Submission dict: schema va.submission.v1 with dataset id "rf100_vl",
@@ -551,11 +613,22 @@ def benchmark_model_rf100vl(
     unknown_manifest_names = validate_dataset_names(selected_names)
     hw_sw = collect_hw()
     harness_identity = harness_git_info()
-    cache_root = (
-        Path(per_dataset_dir)
-        if per_dataset_dir is not None
-        else data_dir / ".va-bench" / "eval" / model_key / fmt / split
-    )
+    # The dataset directory is a READ-ONLY MOUNT as far as this harness is
+    # concerned: it is shared between boxes, and on a campaign it is a snapshot
+    # pulled from HuggingFace. Harness state therefore lives under the output
+    # root, not inside the data.
+    #
+    # MIGRATION: caches written by earlier versions live at
+    # <data_dir>/.va-bench/eval/<model>/<fmt>/<split>. They are not read from
+    # the new location, so an existing campaign either re-evaluates (cheap, the
+    # checkpoints are untouched) or passes the old path via per_dataset_dir.
+    if per_dataset_dir is not None:
+        cache_root = Path(per_dataset_dir)
+    elif weights_root is not None:
+        cache_root = Path(weights_root) / ".eval" / model_key / fmt / split
+    else:
+        # Only reachable with allow_pretrained, which is never submittable.
+        cache_root = data_dir / ".va-bench" / "eval" / model_key / fmt / split
     cache_root.mkdir(parents=True, exist_ok=True)
 
     if verbose:
@@ -690,6 +763,12 @@ def benchmark_model_rf100vl(
                 "num_classes": len(cat_ids),
                 "wall_seconds": dataset_wall_seconds,
             }
+            if save_predictions:
+                predictions_path = _write_predictions(
+                    cache_path, cache_fingerprint, predictions
+                )
+                cached["predictions_file"] = str(predictions_path)
+                cached["num_detections"] = len(predictions)
             atomic_write_json(
                 cache_path,
                 {
@@ -719,6 +798,7 @@ def benchmark_model_rf100vl(
                 "weights": str(weights_path) if weights_path else spec.weight_file,
                 "weights_sha256": weights_sha256,
                 "result_file": str(cache_path),
+                "predictions_file": cached.get("predictions_file"),
                 "resumed_from_cache": resumed_from_cache,
                 "wall_seconds": round(dataset_wall_seconds, 3),
                 "mAP_50": metrics["mAP50"],

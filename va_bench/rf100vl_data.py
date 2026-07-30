@@ -34,24 +34,45 @@ def canonical_json_sha256(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def long_path(path: Path) -> str:
+    """Windows-safe path string.
+
+    The per-dataset result cache nests a 64-hex-char filename six levels under
+    the data dir, and the atomic temp name adds ``.<pid>.tmp`` on top, which
+    clears the 260-char MAX_PATH on ordinary layouts (a scratch dir was enough).
+    mkdir succeeds and only the write fails, so it surfaces as a confusing
+    "No such file or directory" for a directory that plainly exists. The
+    ``\\\\?\\`` prefix opts the call out of MAX_PATH; it needs an absolute path
+    with native separators and no relative components.
+    """
+    if os.name != "nt":
+        return str(path)
+    resolved = os.path.abspath(str(path))
+    if resolved.startswith("\\\\?\\"):
+        return resolved
+    if resolved.startswith("\\\\"):  # UNC share
+        return "\\\\?\\UNC\\" + resolved[2:]
+    return "\\\\?\\" + resolved
+
+
 def atomic_write_json(path: str | Path, value: Any) -> Path:
     """Atomically replace ``path`` with pretty, deterministic JSON."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+    with open(long_path(temporary), "w", encoding="utf-8", newline="\n") as handle:
         json.dump(value, handle, indent=2, ensure_ascii=False, sort_keys=True)
         handle.write("\n")
         handle.flush()
         os.fsync(handle.fileno())
-    temporary.replace(path)
+    os.replace(long_path(temporary), long_path(path))
     return path
 
 
 def load_json(path: str | Path) -> dict[str, Any]:
     """Read a JSON object from disk."""
     path = Path(path)
-    with path.open(encoding="utf-8") as handle:
+    with open(long_path(path), encoding="utf-8") as handle:
         value = json.load(handle)
     if not isinstance(value, dict):
         raise ValueError(f"Expected a JSON object in {path}, got {type(value).__name__}")

@@ -276,6 +276,82 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def cmd_sync_artifacts(args: argparse.Namespace) -> None:
+    """Upload campaign artifacts. Run after EACH dataset, not just at the end."""
+    import os
+    from pathlib import Path
+
+    from .artifacts import collect_artifacts, upload_artifacts
+
+    items = collect_artifacts(
+        model_key=args.model,
+        run_id=args.run_id,
+        weights_root=args.weights_root,
+        eval_dir=args.eval_dir or None,
+        submissions_dir=args.submissions or None,
+        data_dir=args.data_dir or None,
+        recipe_path=args.recipe or None,
+        tier=args.tier,
+    )
+    total = sum(path.stat().st_size for path, _ in items)
+    print(f"{len(items)} files, {total / 1e6:.1f} MB, tier={args.tier}")
+    if args.dry_run:
+        for path, repo_path in items:
+            print(f"  {repo_path}  ({path.stat().st_size / 1e3:.0f} KB)")
+        return
+    if not items:
+        print("nothing to sync")
+        return
+
+    token = os.environ.get("HF_TOKEN", "").strip()
+    if not token:
+        token_file = Path.home() / ".config" / "huggingface" / "token"
+        if token_file.exists():
+            token = token_file.read_text(encoding="utf-8").strip()
+    if not token:
+        raise SystemExit("no HF token in $HF_TOKEN or ~/.config/huggingface/token")
+
+    result = upload_artifacts(
+        items, repo=args.repo, token=token, private=args.private,
+        progress=lambda line: print(f"  {line}", flush=True),
+    )
+    print(f"\nuploaded {result['uploaded']}, skipped {result['skipped']} already present")
+    print(f"https://huggingface.co/datasets/{args.repo}/tree/main/{args.model}/{args.run_id}")
+
+
+def cmd_rescore(args: argparse.Namespace) -> None:
+    """Recompute metrics from saved detections, with no GPU and no model."""
+    import json as _json
+    from pathlib import Path
+
+    from .artifacts import rescore_from_predictions
+
+    report = rescore_from_predictions(
+        eval_root=args.eval_dir,
+        data_dir=args.data_dir,
+        split=args.split,
+        max_det=args.max_det,
+        fingerprint_prefix=args.fingerprint,
+        verify=not args.no_verify,
+        progress=lambda line: print(f"  {line}", flush=True),
+    )
+    Path(args.output).write_text(_json.dumps(report, indent=2), encoding="utf-8")
+
+    print(f"\ndatasets scored : {report['num_datasets']}")
+    print(f"mean AP50:95    : {report['mean_mAP_50_95']:.4f}")
+    print(f"mean AP50       : {report['mean_mAP_50']:.4f}")
+    if not report["is_full_benchmark"]:
+        print(f"NOTE: {report['num_datasets']} datasets, not 100. This is a SUBSET and "
+              f"is NOT a protocol-conformant RF100-VL result.")
+    if report["mismatches"]:
+        print(f"\nMISMATCH against recorded metrics: {len(report['mismatches'])}")
+        for row in report["mismatches"][:10]:
+            print(f"  {row['dataset']}: recorded={row['recorded']:.6f} "
+                  f"rescored={row['rescored']:.6f}")
+        raise SystemExit(1)
+    print("\nmatches the metrics recorded at evaluation time")
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     """List available models."""
     from .models import MODEL_REGISTRY
@@ -625,6 +701,39 @@ def main(argv: list[str] | None = None) -> None:
         help="Re-enter datasets already marked done (resume safety still applies)",
     )
 
+    # --- sync-artifacts ---
+    sa = subparsers.add_parser(
+        "sync-artifacts",
+        help="Upload campaign artifacts to a HuggingFace dataset repo (run after each dataset)",
+    )
+    sa.add_argument("--model", required=True, help="One model registry key")
+    sa.add_argument("--run-id", required=True, help="Campaign run id, e.g. 20260730-wave1")
+    sa.add_argument("--weights-root", required=True)
+    sa.add_argument("--eval-dir", default="", help="Per-dataset eval result dir")
+    sa.add_argument("--submissions", default="", help="Directory of submission JSONs")
+    sa.add_argument("--data-dir", default="", help="Source of versions.json")
+    sa.add_argument("--recipe", default="", help="Recipe JSON to preserve")
+    sa.add_argument("--repo", default="LibreYOLO/rf100-vl-results")
+    sa.add_argument("--tier", choices=("results", "checkpoints", "all"), default="results",
+                    help="results (~239MB/model), checkpoints (+2.5GB), all (+30GB)")
+    sa.add_argument("--private", action="store_true")
+    sa.add_argument("--dry-run", action="store_true")
+
+    # --- rescore ---
+    rs = subparsers.add_parser(
+        "rescore",
+        help="Re-score from saved predictions with no GPU, model, or rented box",
+    )
+    rs.add_argument("--eval-dir", required=True, help="Dir of per-dataset prediction dumps")
+    rs.add_argument("--data-dir", required=True, help="RF100-VL root, for ground truth")
+    rs.add_argument("--split", default="test")
+    rs.add_argument("--max-det", type=int, default=500)
+    rs.add_argument("--fingerprint", default="",
+                    help="Fingerprint prefix, when a dataset has several dumps")
+    rs.add_argument("--output", default="rescore.json")
+    rs.add_argument("--no-verify", action="store_true",
+                    help="Skip comparing against the metrics recorded at evaluation time")
+
     # --- list ---
     subparsers.add_parser("list", help="List available models and specs")
 
@@ -641,6 +750,10 @@ def main(argv: list[str] | None = None) -> None:
         cmd_rf100vl(args)
     elif args.command == "rf100vl-train":
         cmd_rf100vl_train(args)
+    elif args.command == "sync-artifacts":
+        cmd_sync_artifacts(args)
+    elif args.command == "rescore":
+        cmd_rescore(args)
     elif args.command == "list":
         cmd_list(args)
 

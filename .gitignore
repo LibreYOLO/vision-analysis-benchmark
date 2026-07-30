@@ -29,3 +29,6 @@ weights/
 .env
 .DS_Store
 Thumbs.db
+
+# Transient LibreYOLO run output from local eval/val invocations
+runs/
