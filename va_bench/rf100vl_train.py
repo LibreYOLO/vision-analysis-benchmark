@@ -1190,12 +1190,13 @@ def orchestrate_training(
     shard_index: int = 0,
     num_shards: int = 1,
     timeout_hours: float = 6.0,
+    jobs_per_gpu: int = 1,
     runs_root: str | Path | None = None,
     state_root: str | Path | None = None,
     smoke_epochs: int | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Run a name-addressed dataset queue with one child process per GPU."""
+    """Run a name-addressed dataset queue with ``jobs_per_gpu`` lanes per GPU."""
     # (see order_longest_first for why the queue is not alphabetical)
     # Heartbeat interval for the periodic progress line on stdout. The
     # orchestrator is otherwise silent between launch and summary, which on a
@@ -1239,7 +1240,9 @@ def orchestrate_training(
     if not gpus:
         raise ValueError("At least one GPU id is required")
     if len(set(gpus)) != len(gpus):
-        raise ValueError("GPU ids must be unique")
+        raise ValueError("GPU ids must be unique (use --jobs-per-gpu to pack a card)")
+    if jobs_per_gpu < 1:
+        raise ValueError("jobs_per_gpu must be >= 1")
     if timeout_hours <= 0:
         raise ValueError("timeout_hours must be positive")
     if smoke_epochs is not None and smoke_epochs < 1:
@@ -1465,10 +1468,18 @@ def orchestrate_training(
         target=emit_heartbeat, name="rf100vl-heartbeat", daemon=True
     )
     heartbeat_thread.start()
-    executor = ThreadPoolExecutor(max_workers=len(gpus))
+    # One lane per concurrent training. Packing several onto a card is the
+    # only way to raise utilization without touching the protocol: each lane
+    # runs an ordinary independent training at the recipe's physical batch, so
+    # every per-run computation is byte-for-byte what it would have been alone.
+    # Raising the batch size instead would change the thing under test, and
+    # gradient accumulation is not numerically equivalent for this family
+    # (BatchNorm statistics and a batch-global loss normalizer both break it).
+    lanes = [gpu for gpu in gpus for _ in range(jobs_per_gpu)]
+    executor = ThreadPoolExecutor(max_workers=len(lanes))
     futures: list[Any] = []
     try:
-        futures = [executor.submit(consume, gpu) for gpu in gpus]
+        futures = [executor.submit(consume, gpu) for gpu in lanes]
         for future in futures:
             future.result()
     except KeyboardInterrupt:

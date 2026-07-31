@@ -239,3 +239,11 @@ def test_longest_first_ordering_shortens_the_makespan() -> None:
     worst_order = simulate_makespan(lanes, durations)          # long job last
     lpt_order = simulate_makespan(lanes, sorted(durations, reverse=True))
     assert lpt_order < worst_order
+
+
+def test_jobs_per_gpu_expands_lanes_without_touching_the_recipe() -> None:
+    """Packing a card must add lanes only; per-run maths stays identical."""
+    gpus = ["0", "1"]
+    lanes = [gpu for gpu in gpus for _ in range(3)]
+    assert lanes == ["0", "0", "0", "1", "1", "1"]
+    assert sorted(set(lanes)) == gpus

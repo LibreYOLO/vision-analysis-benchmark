@@ -256,6 +256,7 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
         shard_index=args.shard_index,
         num_shards=args.num_shards,
         timeout_hours=args.timeout_hours,
+        jobs_per_gpu=args.jobs_per_gpu,
         runs_root=args.runs_root,
         state_root=args.state_root,
         smoke_epochs=args.smoke_epochs,
@@ -397,6 +398,7 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
         shard_index=0,
         num_shards=1,
         timeout_hours=args.timeout_hours,
+        jobs_per_gpu=args.jobs_per_gpu,
         runs_root=args.runs_root,
         state_root=args.state_root,
         smoke_epochs=args.smoke_epochs,
@@ -860,7 +862,15 @@ def main(argv: list[str] | None = None) -> None:
     rft.add_argument(
         "--gpus",
         default="0",
-        help="Comma-separated physical GPU ids; one child process per GPU",
+        help="Comma-separated physical GPU ids",
+    )
+    rft.add_argument(
+        "--jobs-per-gpu",
+        type=int,
+        default=1,
+        help="Concurrent trainings per GPU. Each is an ordinary independent "
+        "run at the recipe's batch, so results are unchanged; this only "
+        "fills a card that one small model cannot.",
     )
     rft.add_argument(
         "--datasets",
@@ -982,6 +992,14 @@ def main(argv: list[str] | None = None) -> None:
     rc.add_argument("--force", action="store_true")
     rc.add_argument("--output-dir", default="./results_rf100vl")
     rc.add_argument("--skip-preflight", action="store_true")
+    rc.add_argument(
+        "--jobs-per-gpu",
+        type=int,
+        default=1,
+        help="Concurrent trainings per GPU. Each is an ordinary independent "
+        "run at the recipe's batch, so results are unchanged; this only "
+        "fills a card that one small model cannot.",
+    )
     rc.add_argument(
         "--no-gpu-trace",
         action="store_true",
