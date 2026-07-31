@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .rf100vl_eta import estimate_eta
+
 STATUS_SCHEMA = "rf100vl.train-status.v1"
 
 # Non-dataset JSON files that share the model state directory.
@@ -137,34 +139,78 @@ def _dataset_record(status: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def _model_snapshot(model_key: str, model_dir: Path) -> dict[str, Any]:
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
+_SIZE_CACHE: dict[str, dict[str, int]] = {}
+
+
+def _train_image_counts(model_dir: Path, data_dir: Path | None = None) -> dict[str, int]:
+    """dataset -> training image count.
+
+    Two sources, in order of authority. The orchestrator records
+    ``batch_plan.num_train_images`` when it launches a dataset, which is
+    exactly what the trainer saw. That only covers datasets already launched,
+    so the ETA would be size-blind for everything still queued, which is most
+    of a campaign for most of its life. Counting files under ``<dataset>/train``
+    fills in the rest and is cached, since it does not change during a run.
+    """
+    counts: dict[str, int] = {}
+    if data_dir is not None:
+        key = str(data_dir)
+        if key not in _SIZE_CACHE:
+            scanned: dict[str, int] = {}
+            if data_dir.is_dir():
+                for dataset_dir in data_dir.iterdir():
+                    train_dir = dataset_dir / "train"
+                    if not train_dir.is_dir():
+                        continue
+                    scanned[dataset_dir.name] = sum(
+                        1
+                        for path in train_dir.iterdir()
+                        if path.suffix.lower() in _IMAGE_SUFFIXES
+                    )
+            _SIZE_CACHE[key] = scanned
+        counts.update(_SIZE_CACHE[key])
+
+    jobs_dir = model_dir / "jobs"
+    if jobs_dir.is_dir():
+        for path in jobs_dir.glob("*.json"):
+            config = _read_json(path)
+            if not config:
+                continue
+            images = (config.get("batch_plan") or {}).get("num_train_images")
+            name = config.get("dataset_name") or path.stem
+            if isinstance(images, int) and images > 0:
+                counts[str(name)] = images
+    return counts
+
+
+def _model_snapshot(
+    model_key: str, model_dir: Path, data_dir: Path | None = None
+) -> dict[str, Any]:
     datasets = [_dataset_record(status) for status in _dataset_statuses(model_dir)]
     counts = {"pending": 0, "running": 0, "done": 0, "failed": 0}
     for record in datasets:
         counts[record["state"] if record["state"] in counts else "pending"] += 1
 
     running = [r for r in datasets if r["state"] == "running"]
-    done_walls = [
-        r["wall_seconds"]
-        for r in datasets
-        if r["state"] == "done" and isinstance(r.get("wall_seconds"), (int, float))
-    ]
     gpus_active = {str(r.get("gpu")) for r in running if r.get("gpu") is not None}
     lanes = max(1, len(gpus_active))
-    running_tail = max(
-        (r.get("eta_seconds") for r in running if isinstance(r.get("eta_seconds"), (int, float))),
-        default=0.0,
+
+    epochs_total = next(
+        (
+            r["epochs_total"]
+            for r in datasets
+            if isinstance(r.get("epochs_total"), int) and r["epochs_total"] > 0
+        ),
+        100,
     )
-    eta_seconds: float | None = None
-    if done_walls or running:
-        mean_wall = (sum(done_walls) / len(done_walls)) if done_walls else None
-        pending_eta = (
-            counts["pending"] * mean_wall / lanes if mean_wall is not None else None
-        )
-        if pending_eta is not None:
-            eta_seconds = float(running_tail) + pending_eta
-        elif running:
-            eta_seconds = float(running_tail) if running_tail else None
+    estimate = estimate_eta(
+        datasets,
+        train_images=_train_image_counts(model_dir, data_dir),
+        lanes=lanes,
+        epochs_total=epochs_total,
+    )
+    eta_seconds = estimate["p50_seconds"] or None
 
     summary = _read_json(model_dir / "summary.json") or {}
     capabilities = summary.get("libreyolo_capabilities") or {}
@@ -174,15 +220,16 @@ def _model_snapshot(model_key: str, model_dir: Path) -> dict[str, Any]:
         "total": len(datasets),
         "eta_seconds": eta_seconds,
         "eta_is_estimate": True,
+        "eta": estimate,
         "libreyolo_version": capabilities.get("version"),
         "last_summary_protocol_conformant": summary.get("protocol_conformant"),
         "datasets": datasets,
     }
 
 
-def scan_state(state_root: Path) -> dict[str, Any]:
+def scan_state(state_root: Path, data_dir: Path | None = None) -> dict[str, Any]:
     models = [
-        _model_snapshot(model_key, model_dir)
+        _model_snapshot(model_key, model_dir, data_dir)
         for model_key, model_dir in _model_state_dirs(state_root).items()
     ]
     return {
@@ -501,6 +548,7 @@ timer = setInterval(tick, 3000);
 
 class _Handler(BaseHTTPRequestHandler):
     state_root: Path  # set by serve()
+    data_dir: Path | None = None  # set by serve()
 
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A002 - quiet server
         pass
@@ -523,7 +571,7 @@ class _Handler(BaseHTTPRequestHandler):
             if parsed.path == "/":
                 self._send(200, _PAGE.encode("utf-8"), "text/html; charset=utf-8")
             elif parsed.path == "/api/state":
-                self._send_json(scan_state(self.state_root))
+                self._send_json(scan_state(self.state_root, self.data_dir))
             elif parsed.path == "/api/curves":
                 self._send_json(
                     read_curves(
@@ -556,11 +604,16 @@ def serve(
     host: str = "127.0.0.1",
     port: int = 8877,
     open_browser: bool = False,
+    data_dir: Path | None = None,
 ) -> None:
     state_root = Path(state_root).resolve()
     if not state_root.is_dir():
         raise SystemExit(f"state root does not exist: {state_root}")
-    handler = type("BoundHandler", (_Handler,), {"state_root": state_root})
+    handler = type(
+        "BoundHandler",
+        (_Handler,),
+        {"state_root": state_root, "data_dir": Path(data_dir) if data_dir else None},
+    )
     server = ThreadingHTTPServer((host, port), handler)
     url = f"http://{host}:{port}/"
     print(f"RF100-VL dashboard: {url}  (state root: {state_root})")
@@ -586,11 +639,23 @@ def main(argv: list[str] | None = None) -> None:
         required=True,
         help="Campaign .state dir (parent of per-model dirs) or one model state dir",
     )
+    parser.add_argument(
+        "--data-dir",
+        default=None,
+        help="RF100-VL data root. Lets the ETA size datasets that have not "
+        "started yet, which is most of them for most of a campaign.",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8877)
     parser.add_argument("--open", action="store_true", help="Open the browser")
     args = parser.parse_args(argv)
-    serve(Path(args.state_root), host=args.host, port=args.port, open_browser=args.open)
+    serve(
+        Path(args.state_root),
+        host=args.host,
+        port=args.port,
+        open_browser=args.open,
+        data_dir=Path(args.data_dir) if args.data_dir else None,
+    )
 
 
 if __name__ == "__main__":

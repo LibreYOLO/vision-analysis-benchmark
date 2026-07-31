@@ -323,6 +323,29 @@ def cmd_rf100vl_report(args: argparse.Namespace) -> None:
     print(text)
 
 
+def cmd_rf100vl_gpu_report(args: argparse.Namespace) -> None:
+    """Post-mortem: where the GPU-hours went, worst waste first."""
+    from .gpu_trace import (
+        render_efficiency_report,
+        run_dirs_from_state,
+        write_dataset_traces,
+    )
+
+    state_root = args.state_root or str(
+        Path(args.weights_root) / ".state" / args.model
+    )
+    traces = write_dataset_traces(
+        Path(state_root) / "gpu",
+        run_dirs_from_state(state_root),
+        dollars_per_hour=args.dollars_per_hour,
+    )
+    report = render_efficiency_report(traces)
+    print(report)
+    if args.output:
+        Path(args.output).write_text(report, encoding="utf-8")
+        print(f"Wrote {args.output}")
+
+
 def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
     """Preflight, train, evaluate, and report with one set of arguments."""
     from .output import save_result
@@ -330,6 +353,7 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
     from .rf100vl import benchmark_model_rf100vl
     from .rf100vl_preflight import has_failure, render, run_preflight
     from .rf100vl_report import build_report
+    from .gpu_trace import GpuSampler, render_efficiency_report, run_dirs_from_state, write_dataset_traces
     from .rf100vl_train import orchestrate_training
 
     if not args.skip_preflight:
@@ -347,7 +371,21 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
     state_root = args.state_root or str(
         Path(args.weights_root) / ".state" / args.model
     )
-    print(f"Monitor with: va-bench rf100vl-dash --state-root {state_root}\n")
+    print(
+        f"Monitor with: va-bench rf100vl-dash --state-root {state_root} "
+        f"--data-dir {args.data_dir}\n"
+    )
+
+    # Read-only NVML sampling alongside the campaign. It can only add an
+    # artifact, never take a paid run down: start() returns False and the
+    # campaign proceeds untelemetered if NVML is missing.
+    sampler = None
+    if not args.no_gpu_trace:
+        sampler = GpuSampler(Path(state_root) / "gpu", Path(state_root))
+        if not sampler.start():
+            print(f"GPU telemetry off: {sampler.error}")
+            sampler = None
+
     summary = orchestrate_training(
         model_key=args.model,
         data_dir=args.data_dir,
@@ -364,6 +402,23 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
         smoke_epochs=args.smoke_epochs,
         force=args.force,
     )
+    if sampler is not None:
+        sampler.stop()
+        try:
+            traces = write_dataset_traces(
+                Path(state_root) / "gpu",
+                run_dirs_from_state(state_root),
+                dollars_per_hour=args.dollars_per_hour,
+            )
+            if traces:
+                report_path = Path(state_root) / "gpu_efficiency.md"
+                report_path.write_text(
+                    render_efficiency_report(traces), encoding="utf-8"
+                )
+                print(f"GPU telemetry: {len(traces)} datasets -> {report_path}")
+        except Exception as exc:  # never fail a finished campaign on telemetry
+            print(f"GPU telemetry post-processing failed: {exc}")
+
     print(
         f"Training: {len(summary['completed'])} completed, "
         f"{len(summary['skipped_done'])} already done, "
@@ -860,6 +915,17 @@ def main(argv: list[str] | None = None) -> None:
         help="Re-enter datasets already marked done (resume safety still applies)",
     )
 
+    # --- rf100vl-gpu-report ---
+    rg = subparsers.add_parser(
+        "rf100vl-gpu-report",
+        help="Post-mortem GPU efficiency per dataset from captured telemetry",
+    )
+    rg.add_argument("--model", required=True)
+    rg.add_argument("--weights-root", required=True)
+    rg.add_argument("--state-root", default=None)
+    rg.add_argument("--dollars-per-hour", type=float, default=None)
+    rg.add_argument("--output", default=None, help="Also write the markdown here")
+
     # --- rf100vl-preflight ---
     rp = subparsers.add_parser(
         "rf100vl-preflight",
@@ -916,6 +982,17 @@ def main(argv: list[str] | None = None) -> None:
     rc.add_argument("--force", action="store_true")
     rc.add_argument("--output-dir", default="./results_rf100vl")
     rc.add_argument("--skip-preflight", action="store_true")
+    rc.add_argument(
+        "--no-gpu-trace",
+        action="store_true",
+        help="Disable GPU telemetry capture (on by default; ~4.4 MB per campaign)",
+    )
+    rc.add_argument(
+        "--dollars-per-hour",
+        type=float,
+        default=None,
+        help="Box price, to attribute spend per dataset in the efficiency report",
+    )
     rc.add_argument("--quiet", action="store_true")
 
     # --- rf100vl-dash ---
@@ -989,6 +1066,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_rf100vl_train(args)
     elif args.command == "rf100vl-dash":
         cmd_rf100vl_dash(args)
+    elif args.command == "rf100vl-gpu-report":
+        cmd_rf100vl_gpu_report(args)
     elif args.command == "rf100vl-preflight":
         cmd_rf100vl_preflight(args)
     elif args.command == "rf100vl-report":

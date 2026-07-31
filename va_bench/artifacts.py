@@ -32,6 +32,10 @@ RUN_FILES = (
     "train.log",
     "summary.json",
     "status.json",
+    # GPU telemetry. Measured at 29 bytes per second per dataset gzipped, so a
+    # 100 dataset campaign adds about 4.4 MB, less than one checkpoint.
+    "gpu_trace.jsonl.gz",
+    "gpu_summary.json",
 )
 STATE_FILES = ("summary.json", "rerun.json", "failures.json")
 
