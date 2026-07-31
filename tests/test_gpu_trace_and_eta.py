@@ -198,3 +198,44 @@ def test_eta_reports_its_own_method_when_it_knows_nothing() -> None:
     )
     assert estimate["model"]["method"] == "no observations yet"
     assert estimate["p50_seconds"] == 0.0
+
+
+# --------------------------------------------------------------------------
+# scheduling
+# --------------------------------------------------------------------------
+
+
+def test_longest_first_ordering_puts_the_big_datasets_at_the_front(tmp_path: Path) -> None:
+    """An alphabetical queue can strand a multi-hour dataset on one lane."""
+    from va_bench.rf100vl_train import order_longest_first
+
+    for name, count in (("aaa-small", 2), ("zzz-huge", 9), ("mmm-medium", 5)):
+        train = tmp_path / name / "train"
+        train.mkdir(parents=True)
+        for i in range(count):
+            (train / f"{i}.jpg").write_bytes(b"x")
+        (train / "_annotations.coco.json").write_text("{}", encoding="utf-8")
+
+    assert order_longest_first(
+        ["aaa-small", "mmm-medium", "zzz-huge"], tmp_path
+    ) == ["zzz-huge", "mmm-medium", "aaa-small"]
+
+
+def test_longest_first_is_deterministic_and_survives_missing_dirs(tmp_path: Path) -> None:
+    from va_bench.rf100vl_train import order_longest_first
+
+    # No dataset dirs at all: every size is 0, so the order must stay stable
+    # rather than depending on filesystem iteration order.
+    names = ["c", "a", "b"]
+    assert order_longest_first(names, tmp_path) == ["a", "b", "c"]
+
+
+def test_longest_first_ordering_shortens_the_makespan() -> None:
+    """The actual point: LPT beats an unlucky arbitrary order."""
+    from va_bench.rf100vl_eta import simulate_makespan
+
+    durations = [10.0, 10.0, 10.0, 10.0, 100.0]
+    lanes = [0.0, 0.0]
+    worst_order = simulate_makespan(lanes, durations)          # long job last
+    lpt_order = simulate_makespan(lanes, sorted(durations, reverse=True))
+    assert lpt_order < worst_order

@@ -227,6 +227,77 @@ def _model_snapshot(
     }
 
 
+_DISTRIBUTION_ALIASES = {
+    "va-bench": ("vision-analysis-benchmark", "va-bench", "va_bench"),
+    "libreyolo": ("libreyolo",),
+}
+
+
+def _package_provenance(name: str) -> dict[str, Any]:
+    """Version AND exact commit for an installed package.
+
+    A campaign box pip-installs from git, so there is no .git directory to
+    interrogate and ``harness_git_info`` finds nothing. pip does record the
+    resolved commit in ``direct_url.json`` (PEP 610) when installing from a
+    VCS URL, which is the only reliable way to answer "what code is actually
+    running on this box" after the fact.
+    """
+    from importlib.metadata import PackageNotFoundError, distribution  # noqa: PLC0415
+
+    info: dict[str, Any] = {"package": name}
+    # The import name and the distribution name differ for this harness
+    # (``va_bench`` ships as ``vision-analysis-benchmark``), so try the aliases
+    # rather than reporting "not installed" for a package that plainly is.
+    candidates = _DISTRIBUTION_ALIASES.get(name, (name,))
+    dist = None
+    for candidate in candidates:
+        try:
+            dist = distribution(candidate)
+            break
+        except PackageNotFoundError:
+            continue
+    if dist is None:
+        info["error"] = "not installed"
+        return info
+    info["version"] = dist.version
+    raw = dist.read_text("direct_url.json")
+    if raw:
+        try:
+            direct = json.loads(raw)
+        except json.JSONDecodeError:
+            direct = {}
+        vcs = direct.get("vcs_info") or {}
+        if vcs.get("commit_id"):
+            info["commit"] = vcs["commit_id"]
+            info["commit_short"] = str(vcs["commit_id"])[:12]
+        if direct.get("url"):
+            info["url"] = direct["url"]
+        if vcs.get("requested_revision"):
+            info["branch"] = vcs["requested_revision"]
+    return info
+
+
+def _provenance(state_root: Path) -> dict[str, Any]:
+    """What code and what inputs produced the run being watched."""
+    import platform  # noqa: PLC0415
+
+    provenance: dict[str, Any] = {
+        "host": platform.node(),
+        "packages": [_package_provenance("va-bench"), _package_provenance("libreyolo")],
+    }
+    for _model_key, model_dir in _model_state_dirs(state_root).items():
+        summary = _read_json(model_dir / "summary.json") or {}
+        for key in ("recipe_sha256", "versions_sha256", "protocol"):
+            if summary.get(key) is not None:
+                provenance.setdefault(key, summary[key])
+        # Status files carry the hashes even before any summary exists.
+        for status in _dataset_statuses(model_dir)[:1]:
+            for key in ("recipe_sha256", "versions_sha256"):
+                if status.get(key) and key not in provenance:
+                    provenance[key] = status[key]
+    return provenance
+
+
 def scan_state(state_root: Path, data_dir: Path | None = None) -> dict[str, Any]:
     models = [
         _model_snapshot(model_key, model_dir, data_dir)
@@ -236,6 +307,7 @@ def scan_state(state_root: Path, data_dir: Path | None = None) -> dict[str, Any]
         "schema_version": "rf100vl.dash-state.v1",
         "state_root": str(state_root),
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "provenance": _provenance(state_root),
         "models": models,
     }
 
@@ -370,6 +442,7 @@ pre { margin-top:8px; background:#0d1117; border:1px solid var(--line);
 </style></head><body>
 <h1>RF100-VL campaign <span id="clock" class="dim small"></span></h1>
 <div class="dim small" id="root"></div>
+<div class="small" id="prov"></div>
 <div id="err"></div>
 <div id="models"></div>
 <div id="drawer">
@@ -425,8 +498,46 @@ function cellHtml(r, model) {
     <small>${sub}</small></div>`;
 }
 
+function renderProvenance(state) {
+  // Which code produced this, and is the page even looking at a live run.
+  // A dashboard pointed at a stale state root looks identical to a live one
+  // unless it says so out loud.
+  const p = state.provenance || {};
+  const bits = [];
+  (p.packages || []).forEach(function (pkg) {
+    if (pkg.error) { bits.push(pkg.package + " " + pkg.error); return; }
+    let s = pkg.package + " " + (pkg.version || "?");
+    if (pkg.commit_short) s += " @" + pkg.commit_short;
+    if (pkg.branch) s += " (" + pkg.branch + ")";
+    bits.push(s);
+  });
+  if (p.host) bits.push("host " + p.host);
+  if (p.recipe_sha256) bits.push("recipe " + String(p.recipe_sha256).slice(0, 12));
+  if (p.versions_sha256) bits.push("data " + String(p.versions_sha256).slice(0, 12));
+
+  let stale = 0;
+  (state.models || []).forEach(function (m) {
+    (m.datasets || []).forEach(function (d) {
+      if (d.state === "running" && typeof d.live_stale_seconds === "number") {
+        stale = Math.max(stale, d.live_stale_seconds);
+      }
+    });
+  });
+  const anyRunning = (state.models || []).some(function (m) { return m.counts.running > 0; });
+  let warn = "";
+  if (anyRunning && stale > 300) {
+    warn = ' <b style="color:#ff8f98">STALE: no worker update for ' +
+           Math.round(stale / 60) + ' min. Is this the live campaign?</b>';
+  } else if (!anyRunning) {
+    warn = ' <b style="color:#ffcc66">nothing running</b>';
+  }
+  document.getElementById("prov").innerHTML =
+    '<span class="dim">' + bits.join(" &middot; ") + "</span>" + warn;
+}
+
 function render(state) {
   document.getElementById("root").textContent = state.state_root;
+  renderProvenance(state);
   document.getElementById("clock").textContent =
     "updated " + new Date().toLocaleTimeString();
   const parts = [];
