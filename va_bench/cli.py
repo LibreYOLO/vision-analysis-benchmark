@@ -485,7 +485,30 @@ def cmd_sync_artifacts(args: argparse.Namespace) -> None:
     import os
     from pathlib import Path
 
-    from .artifacts import collect_artifacts, upload_artifacts
+    from .artifacts import (
+        build_manifest,
+        collect_artifacts,
+        upload_artifacts,
+        write_manifest,
+    )
+
+    # Write the provenance manifest BEFORE collecting, so it uploads with the
+    # rest rather than as an afterthought a reader has to go hunting for.
+    state_dir = Path(args.weights_root) / ".state" / args.model
+    manifest = build_manifest(
+        model_key=args.model,
+        run_id=args.run_id,
+        state_dir=state_dir,
+        data_dir=args.data_dir or None,
+        recipe_path=args.recipe or None,
+    )
+    if state_dir.is_dir():
+        write_manifest(state_dir, manifest)
+        commits = {
+            entry["package"]: entry.get("commit", "?")[:12]
+            for entry in manifest["packages"]
+        }
+        print(f"manifest: {commits}")
 
     items = collect_artifacts(
         model_key=args.model,

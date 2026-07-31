@@ -37,7 +37,182 @@ RUN_FILES = (
     "gpu_trace.jsonl.gz",
     "gpu_summary.json",
 )
-STATE_FILES = ("summary.json", "rerun.json", "failures.json")
+STATE_FILES = ("summary.json", "rerun.json", "failures.json", "manifest.json")
+MANIFEST_SCHEMA = "rf100vl.manifest.v1"
+MANIFEST_FILENAME = "manifest.json"
+
+
+def package_provenance(name: str) -> dict[str, Any]:
+    """Version and exact commit of an installed package.
+
+    A campaign box pip-installs from git and has no .git directory, so asking
+    git is useless after the fact. pip records the resolved commit in
+    ``direct_url.json`` (PEP 610) for VCS installs, which is the only reliable
+    way to answer "which code produced these numbers" once the box is gone.
+    """
+    from importlib.metadata import PackageNotFoundError, distribution
+
+    # Import name and distribution name differ for this harness.
+    aliases = {
+        "va-bench": ("vision-analysis-benchmark", "va-bench", "va_bench"),
+    }.get(name, (name,))
+    info: dict[str, Any] = {"package": name}
+    dist = None
+    for candidate in aliases:
+        try:
+            dist = distribution(candidate)
+            break
+        except PackageNotFoundError:
+            continue
+    if dist is None:
+        info["error"] = "not installed"
+        return info
+    info["version"] = dist.version
+    raw = dist.read_text("direct_url.json")
+    if raw:
+        try:
+            direct = json.loads(raw)
+        except json.JSONDecodeError:
+            direct = {}
+        vcs = direct.get("vcs_info") or {}
+        if vcs.get("commit_id"):
+            info["commit"] = vcs["commit_id"]
+        if vcs.get("requested_revision"):
+            info["requested_revision"] = vcs["requested_revision"]
+        if direct.get("url"):
+            info["url"] = direct["url"]
+    return info
+
+
+def build_manifest(
+    *,
+    model_key: str,
+    run_id: str,
+    state_dir: str | Path | None = None,
+    data_dir: str | Path | None = None,
+    recipe_path: str | Path | None = None,
+    created_at: str | None = None,
+) -> dict[str, Any]:
+    """Everything needed to say what produced this upload, and reproduce it.
+
+    Results that cannot be traced to an exact commit are not evidence, they are
+    anecdotes. This travels beside the numbers so a reader a year from now can
+    identify the code, the recipe, the dataset lock and the hardware without
+    access to the box, which will be long destroyed.
+    """
+    from datetime import datetime, timezone
+
+    manifest: dict[str, Any] = {
+        "schema_version": MANIFEST_SCHEMA,
+        "model_key": model_key,
+        "run_id": run_id,
+        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
+        "packages": [package_provenance("libreyolo"), package_provenance("va-bench")],
+    }
+
+    try:
+        import platform
+
+        manifest["host"] = {
+            "node": platform.node(),
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+        }
+    except Exception:
+        pass
+
+    try:
+        import torch
+
+        devices = [
+            torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+        ]
+        manifest["torch"] = {
+            "version": torch.__version__,
+            "cuda": torch.version.cuda,
+            "gpus": devices,
+            "gpu_count": len(devices),
+        }
+    except Exception:
+        pass
+
+    if recipe_path and Path(recipe_path).is_file():
+        recipe_file = Path(recipe_path)
+        manifest["recipe"] = {
+            "filename": recipe_file.name,
+            "sha256": _sha256(recipe_file),
+        }
+        try:
+            manifest["recipe"]["protocol"] = json.loads(
+                recipe_file.read_text(encoding="utf-8")
+            ).get("protocol")
+        except Exception:
+            pass
+
+    if data_dir:
+        versions = Path(data_dir) / "versions.json"
+        if versions.is_file():
+            manifest["dataset_versions"] = {
+                "filename": "versions.json",
+                "sha256": _sha256(versions),
+            }
+
+    if state_dir:
+        state = Path(state_dir)
+        summary = state / "summary.json"
+        if summary.is_file():
+            try:
+                data = json.loads(summary.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                data = {}
+            manifest["campaign"] = {
+                key: data.get(key)
+                for key in (
+                    "completed",
+                    "failed",
+                    "interrupted",
+                    "skipped_done",
+                    "protocol_conformant",
+                    "libreyolo_capabilities",
+                )
+                if data.get(key) is not None
+            }
+        # Status files carry the hashes the workers actually used, which beats
+        # re-deriving them here: a mismatch is exactly what we want visible.
+        for status_file in sorted(state.glob("*.json")):
+            if status_file.stem in {"summary", "rerun", "failures", "manifest"}:
+                continue
+            try:
+                status = json.loads(status_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            observed = {
+                key: status[key]
+                for key in ("recipe_sha256", "versions_sha256")
+                if status.get(key)
+            }
+            if observed:
+                manifest.setdefault("observed_hashes", observed)
+                break
+    return manifest
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_manifest(state_dir: str | Path, manifest: dict[str, Any]) -> Path:
+    state_dir = Path(state_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    path = state_dir / MANIFEST_FILENAME
+    path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    return path
 
 
 def collect_artifacts(

@@ -179,3 +179,45 @@ def test_rescore_skips_datasets_without_ground_truth(tmp_path):
     )
     assert report["num_datasets"] == 1
     assert report["datasets"][0]["dataset"] == "ds1"
+
+
+def test_manifest_records_code_identity_and_hashes(tmp_path):
+    """Results without an exact commit are anecdotes, not evidence."""
+    import json as _json
+
+    from va_bench.artifacts import STATE_FILES, build_manifest, write_manifest
+
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "summary.json").write_text(
+        _json.dumps({"completed": ["a"], "failed": [], "protocol_conformant": True}),
+        encoding="utf-8",
+    )
+    (state / "a.json").write_text(
+        _json.dumps({"recipe_sha256": "rrr", "versions_sha256": "vvv"}), encoding="utf-8"
+    )
+    recipe = tmp_path / "yolov9.json"
+    recipe.write_text(_json.dumps({"protocol": {"epochs": 100}}), encoding="utf-8")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "versions.json").write_text("{}", encoding="utf-8")
+
+    manifest = build_manifest(
+        model_key="yolov9t",
+        run_id="r1",
+        state_dir=state,
+        data_dir=data_dir,
+        recipe_path=recipe,
+    )
+    names = {entry["package"] for entry in manifest["packages"]}
+    assert names == {"libreyolo", "va-bench"}
+    assert manifest["recipe"]["sha256"]
+    assert manifest["recipe"]["protocol"] == {"epochs": 100}
+    assert manifest["dataset_versions"]["sha256"]
+    assert manifest["campaign"]["protocol_conformant"] is True
+    assert manifest["observed_hashes"] == {"recipe_sha256": "rrr", "versions_sha256": "vvv"}
+    assert manifest["created_at"]
+
+    # and it must actually be uploaded, not just written
+    written = write_manifest(state, manifest)
+    assert written.name in STATE_FILES
