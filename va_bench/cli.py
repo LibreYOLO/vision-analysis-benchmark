@@ -495,12 +495,24 @@ def cmd_sync_artifacts(args: argparse.Namespace) -> None:
     # Write the provenance manifest BEFORE collecting, so it uploads with the
     # rest rather than as an afterthought a reader has to go hunting for.
     state_dir = Path(args.weights_root) / ".state" / args.model
+    # Resolve the PACKAGED recipe when none was passed. Omitting --recipe is the
+    # normal case, and a manifest that then says nothing about the recipe is
+    # exactly the manifest you did not want.
+    recipe_path = args.recipe or None
+    if recipe_path is None:
+        try:
+            from .models import get_spec
+            from .rf100vl_train import recipe_path_for_family
+
+            recipe_path = recipe_path_for_family(get_spec(args.model).family)
+        except Exception:
+            recipe_path = None
     manifest = build_manifest(
         model_key=args.model,
         run_id=args.run_id,
         state_dir=state_dir,
         data_dir=args.data_dir or None,
-        recipe_path=args.recipe or None,
+        recipe_path=recipe_path,
     )
     if state_dir.is_dir():
         write_manifest(state_dir, manifest)

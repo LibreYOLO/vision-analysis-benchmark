@@ -152,9 +152,22 @@ def build_manifest(
     if data_dir:
         versions = Path(data_dir) / "versions.json"
         if versions.is_file():
+            # Use the harness's own canonical hash, not a hash of the raw bytes.
+            # They differ (one hashes parsed content, the other the file), and
+            # publishing both invites a reader to conclude the lock was tampered
+            # with when only the hash DEFINITION differs.
+            try:
+                from .rf100vl_data import version_lock_sha256
+
+                digest = version_lock_sha256(
+                    json.loads(versions.read_text(encoding="utf-8"))
+                )
+            except Exception:
+                digest = _sha256(versions)
             manifest["dataset_versions"] = {
                 "filename": "versions.json",
-                "sha256": _sha256(versions),
+                "sha256": digest,
+                "hash_of": "canonical version-lock content",
             }
 
     if state_dir:
