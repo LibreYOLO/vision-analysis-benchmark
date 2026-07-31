@@ -874,6 +874,44 @@ def _append_failure(
         atomic_write_json(failures_path, value)
 
 
+def _smoke_leftover_config(
+    state_root: Path,
+    dataset_name: str,
+    run_dir: Path,
+) -> dict[str, Any] | None:
+    """Return the last worker config iff it proves the leftover run is a smoke run.
+
+    The persisted ``jobs/<dataset>.json`` describes the most recent launch of
+    this dataset. Only when it explicitly recorded ``smoke_epochs`` AND targeted
+    the same run directory is the leftover ``last.pt`` provably a smoke
+    artifact. Anything else (a real interrupted run, an edited recipe, an
+    unknown directory) must keep the hard refusal: auto-deleting real training
+    is worse than asking a human.
+    """
+    try:
+        config = load_json(_worker_config_path(state_root, dataset_name))
+    except Exception:
+        return None
+    if not isinstance(config, dict):
+        return None
+    if config.get("smoke_epochs") is None:
+        return None
+    if config.get("run_dir") != str(run_dir):
+        return None
+    return config
+
+
+def _quarantine_run_dir(run_dir: Path) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    quarantined = run_dir.with_name(f"{run_dir.name}-smoke-{stamp}")
+    index = 0
+    while quarantined.exists():
+        index += 1
+        quarantined = run_dir.with_name(f"{run_dir.name}-smoke-{stamp}-{index}")
+    run_dir.rename(quarantined)
+    return quarantined
+
+
 def _run_attempt(
     *,
     dataset_name: str,
@@ -932,10 +970,21 @@ def _run_attempt(
     last_checkpoint = run_dir / "weights" / "last.pt"
     resume = last_checkpoint.is_file()
     if resume and (previous is None or previous.get("run_signature") != signature):
-        raise RuntimeError(
-            f"Refusing to resume {dataset_name!r}: last.pt exists but the "
-            "recorded physical batch/accumulation/recipe signature differs"
-        )
+        smoke_config = _smoke_leftover_config(state_root, dataset_name, run_dir)
+        if smoke_config is not None and smoke_epochs is None:
+            quarantined = _quarantine_run_dir(run_dir)
+            print(
+                f"[{utc_now()}] {dataset_name}: leftover smoke run "
+                f"(smoke_epochs={smoke_config.get('smoke_epochs')}) quarantined "
+                f"to {quarantined.name}; starting the protocol run fresh",
+                flush=True,
+            )
+            resume = False
+        else:
+            raise RuntimeError(
+                f"Refusing to resume {dataset_name!r}: last.pt exists but the "
+                "recorded physical batch/accumulation/recipe signature differs"
+            )
 
     target_checkpoint = weights_root / dataset_name / spec.weight_file
     worker_result_path = _worker_result_path(

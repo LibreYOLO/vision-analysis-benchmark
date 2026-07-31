@@ -419,3 +419,42 @@ def test_worker_generates_stats_and_copies_best_checkpoint(tmp_path, monkeypatch
     assert stats["valid_mAP50_95"] == pytest.approx(0.6)
     assert stats["dataset_version"] == 4
     assert len(stats["recipe"]["sha256"]) == 64
+
+
+def test_smoke_leftover_detection_and_quarantine(tmp_path):
+    from va_bench.rf100vl_train import (
+        _quarantine_run_dir,
+        _smoke_leftover_config,
+        _worker_config_path,
+        atomic_write_json,
+    )
+
+    state_root = tmp_path / "state"
+    run_dir = tmp_path / "runs" / "ds" / "primary"
+    (run_dir / "weights").mkdir(parents=True)
+    (run_dir / "weights" / "last.pt").write_bytes(b"ckpt")
+
+    # No jobs record at all: not provably smoke.
+    assert _smoke_leftover_config(state_root, "ds", run_dir) is None
+
+    # A real (non-smoke) previous launch: not provably smoke.
+    config_path = _worker_config_path(state_root, "ds")
+    atomic_write_json(
+        config_path, {"smoke_epochs": None, "run_dir": str(run_dir)}
+    )
+    assert _smoke_leftover_config(state_root, "ds", run_dir) is None
+
+    # A smoke launch against a DIFFERENT run dir: not this leftover.
+    atomic_write_json(
+        config_path, {"smoke_epochs": 2, "run_dir": str(tmp_path / "other")}
+    )
+    assert _smoke_leftover_config(state_root, "ds", run_dir) is None
+
+    # A smoke launch against this run dir: provably smoke.
+    atomic_write_json(config_path, {"smoke_epochs": 2, "run_dir": str(run_dir)})
+    assert _smoke_leftover_config(state_root, "ds", run_dir) is not None
+
+    quarantined = _quarantine_run_dir(run_dir)
+    assert not run_dir.exists()
+    assert (quarantined / "weights" / "last.pt").is_file()
+    assert quarantined.name.startswith("primary-smoke-")
