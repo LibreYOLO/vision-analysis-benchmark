@@ -277,6 +277,126 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def cmd_rf100vl_preflight(args: argparse.Namespace) -> None:
+    """Validate every campaign precondition; exit non-zero on any failure."""
+    from .rf100vl_preflight import has_failure, render, run_preflight
+
+    checks = run_preflight(
+        model_key=args.model,
+        data_dir=Path(args.data_dir),
+        weights_root=Path(args.weights_root),
+        recipe=args.recipe,
+    )
+    print(render(checks))
+    if has_failure(checks):
+        raise SystemExit(1)
+
+
+def cmd_rf100vl_report(args: argparse.Namespace) -> None:
+    """Render submission JSONs as markdown for humans."""
+    from .rf100vl_report import build_leaderboard, build_report, load_submissions
+
+    submissions = load_submissions(Path(args.submission))
+    if not submissions:
+        print(f"No RF100-VL submissions found at {args.submission}")
+        raise SystemExit(1)
+    weights_root = Path(args.weights_root) if args.weights_root else None
+    if len(submissions) == 1 and not args.leaderboard:
+        text = build_report(submissions[0], weights_root=weights_root)
+    else:
+        roots = None
+        if weights_root is not None:
+            roots = {
+                str(s.get("model", {}).get("id", "?")): weights_root
+                for s in submissions
+            }
+        text = build_leaderboard(submissions, weights_roots=roots)
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8")
+        print(f"Wrote {args.output}")
+    print(text)
+
+
+def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
+    """Preflight, train, evaluate, and report with one set of arguments."""
+    from .output import save_result
+    from .provenance import harness_git_info, reconstruct_command
+    from .rf100vl import benchmark_model_rf100vl
+    from .rf100vl_preflight import has_failure, render, run_preflight
+    from .rf100vl_report import build_report
+    from .rf100vl_train import orchestrate_training
+
+    if not args.skip_preflight:
+        checks = run_preflight(
+            model_key=args.model,
+            data_dir=Path(args.data_dir),
+            weights_root=Path(args.weights_root),
+            recipe=args.recipe,
+        )
+        print(render(checks))
+        if has_failure(checks):
+            raise SystemExit(1)
+        print()
+
+    state_root = args.state_root or str(
+        Path(args.weights_root) / ".state" / args.model
+    )
+    print(f"Monitor with: va-bench rf100vl-dash --state-root {state_root}\n")
+    summary = orchestrate_training(
+        model_key=args.model,
+        data_dir=args.data_dir,
+        weights_root=args.weights_root,
+        recipe_path=args.recipe,
+        gpus=[part.strip() for part in args.gpus.split(",") if part.strip()],
+        datasets=args.datasets,
+        limit_datasets=args.limit_datasets,
+        shard_index=0,
+        num_shards=1,
+        timeout_hours=args.timeout_hours,
+        runs_root=args.runs_root,
+        state_root=args.state_root,
+        smoke_epochs=args.smoke_epochs,
+        force=args.force,
+    )
+    print(
+        f"Training: {len(summary['completed'])} completed, "
+        f"{len(summary['skipped_done'])} already done, "
+        f"{len(summary['failed'])} failed"
+    )
+    if summary["failed"] or summary.get("active_running"):
+        print(
+            "Not evaluating: resolve the failures (rerun list: "
+            f"{summary['rerun_file']}) and run the same command again; "
+            "completed datasets resume instantly."
+        )
+        raise SystemExit(1)
+
+    harness = harness_git_info()
+    result = benchmark_model_rf100vl(
+        model_key=args.model,
+        data_dir=args.data_dir,
+        weights_root=args.weights_root,
+        datasets=args.datasets,
+        limit_datasets=args.limit_datasets,
+        recipe_path=args.recipe,
+        verbose=not args.quiet,
+    )
+    result.setdefault("repro", {}).update(
+        {
+            "harness_commit": harness["commit"],
+            "harness_dirty": harness["dirty"],
+            "argv": sys.argv[1:],
+            "command": reconstruct_command(sys.argv[1:]),
+        }
+    )
+    filepath = save_result(result, args.output_dir)
+    report = build_report(result, weights_root=Path(args.weights_root))
+    report_path = Path(filepath).with_suffix(".md")
+    report_path.write_text(report, encoding="utf-8")
+    print(f"\nSubmission: {filepath}\nReport:     {report_path}\n")
+    print(report)
+
+
 def cmd_rf100vl_dash(args: argparse.Namespace) -> None:
     """Serve the live campaign dashboard."""
     from .rf100vl_dash import serve
@@ -722,6 +842,64 @@ def main(argv: list[str] | None = None) -> None:
         help="Re-enter datasets already marked done (resume safety still applies)",
     )
 
+    # --- rf100vl-preflight ---
+    rp = subparsers.add_parser(
+        "rf100vl-preflight",
+        help="Validate a box before a campaign: libreyolo, data, recipe, GPU, disk",
+    )
+    rp.add_argument("--model", required=True, help="One model registry key")
+    rp.add_argument("--data-dir", required=True, help="Version-locked RF100-VL root")
+    rp.add_argument("--weights-root", required=True, help="Campaign output root")
+    rp.add_argument("--recipe", default=None, help="Recipe JSON (default: packaged)")
+
+    # --- rf100vl-report ---
+    rr = subparsers.add_parser(
+        "rf100vl-report",
+        help="Render submission JSONs as markdown (report or leaderboard)",
+    )
+    rr.add_argument(
+        "--submission",
+        required=True,
+        help="One submission JSON, or a directory of them (renders a leaderboard)",
+    )
+    rr.add_argument(
+        "--weights-root",
+        default=None,
+        help="Campaign weights root; adds train cost from per-dataset stats.json",
+    )
+    rr.add_argument(
+        "--leaderboard",
+        action="store_true",
+        help="Force the leaderboard table even for a single submission",
+    )
+    rr.add_argument("--output", default=None, help="Also write the markdown here")
+
+    # --- rf100vl-campaign ---
+    rc = subparsers.add_parser(
+        "rf100vl-campaign",
+        help="One command: preflight, train, evaluate, report (protocol defaults)",
+    )
+    rc.add_argument("--model", required=True, help="One model registry key")
+    rc.add_argument("--data-dir", required=True, help="Version-locked RF100-VL root")
+    rc.add_argument("--weights-root", required=True, help="Campaign output root")
+    rc.add_argument("--gpus", default="0", help='GPU ids, e.g. "0,1,2,3" (default: 0)')
+    rc.add_argument("--recipe", default=None, help="Recipe JSON (default: packaged)")
+    rc.add_argument(
+        "--datasets",
+        nargs="+",
+        default=None,
+        help="Optional dataset subset (result is then NOT submittable)",
+    )
+    rc.add_argument("--limit-datasets", type=int, default=None)
+    rc.add_argument("--timeout-hours", type=float, default=6.0)
+    rc.add_argument("--runs-root", default=None)
+    rc.add_argument("--state-root", default=None)
+    rc.add_argument("--smoke-epochs", type=int, default=None)
+    rc.add_argument("--force", action="store_true")
+    rc.add_argument("--output-dir", default="./results_rf100vl")
+    rc.add_argument("--skip-preflight", action="store_true")
+    rc.add_argument("--quiet", action="store_true")
+
     # --- rf100vl-dash ---
     rd = subparsers.add_parser(
         "rf100vl-dash",
@@ -793,6 +971,12 @@ def main(argv: list[str] | None = None) -> None:
         cmd_rf100vl_train(args)
     elif args.command == "rf100vl-dash":
         cmd_rf100vl_dash(args)
+    elif args.command == "rf100vl-preflight":
+        cmd_rf100vl_preflight(args)
+    elif args.command == "rf100vl-report":
+        cmd_rf100vl_report(args)
+    elif args.command == "rf100vl-campaign":
+        cmd_rf100vl_campaign(args)
     elif args.command == "sync-artifacts":
         cmd_sync_artifacts(args)
     elif args.command == "rescore":

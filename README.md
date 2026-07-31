@@ -115,7 +115,24 @@ va-bench rf100vl-train \
 
 # fine-tuned evaluation on the test split
 va-bench rf100vl --models yolov9t --data-dir ~/rf100-vl --weights-root ~/rf100-vl-ckpts
+
+# or all of the above as one resumable command: preflight -> train -> eval -> report
+va-bench rf100vl-campaign --model yolov9t --data-dir ~/rf100-vl \
+  --weights-root ~/rf100-vl-ckpts --gpus 0,1,2,3,4,5,6,7
 ```
+
+Around the campaign:
+
+- `va-bench rf100vl-preflight` validates a box before any GPU-hour is spent:
+  LibreYOLO protocol capabilities, dataset snapshot vs its version lock, split
+  files, recipe hash, torch-vs-GPU architecture support, disk, writability.
+- `va-bench rf100vl-dash` serves a live localhost dashboard of a running
+  campaign (per-GPU lanes, dataset grid, loss and mAP curves, log tails).
+- `va-bench rf100vl-report` renders any submission JSON as markdown: domain
+  means, ok/100 completion, train cost from per-dataset stats, weakest
+  datasets. Point it at a directory of submissions for a leaderboard table.
+  Reports are pure functions of published artifacts and can be rebuilt
+  anytime.
 
 `--allow-pretrained` forces COCO-pretrained registry weights (smoke tests and
 future open-vocabulary models only); those runs are flagged and must not be
