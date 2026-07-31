@@ -173,6 +173,11 @@ def main() -> int:
     ).stdout
     offers = json.loads(raw)
 
+    # Sibling counts are a LOWER BOUND, not a census. A single query never
+    # returns the whole market, and offers that are currently RENTED do not
+    # appear at all, so an egress can look solo in one snapshot and shared by
+    # five machines in another. The known-bad list exists precisely because
+    # this heuristic cannot be trusted to fire on its own.
     host_ids_per_ip: dict[str, set] = collections.defaultdict(set)
     offers_per_ip: collections.Counter = collections.Counter()
     for offer in offers:
