@@ -747,6 +747,58 @@ def _worker_result_path(
     return state_root / "worker-results" / f"{dataset_name}.{signature[:16]}.json"
 
 
+def _terminate_child(process: subprocess.Popen) -> None:
+    """Stop one trainer child, escalating to kill if it ignores the signal."""
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+        process.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+    except OSError:
+        pass
+
+
+class _ChildProcesses:
+    """Registry of live trainer children so Ctrl-C can stop a campaign.
+
+    Without this, an interrupt reaches the orchestrator's main thread while
+    every worker thread sits in ``process.wait()``; the thread pool then joins
+    those workers on the way out, so the campaign keeps training and the
+    terminal looks hung until the per-dataset timeout expires. An operator who
+    cannot stop a run is not in control of it.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._processes: set[subprocess.Popen] = set()
+        self.stopping = threading.Event()
+
+    def add(self, process: subprocess.Popen) -> None:
+        with self._lock:
+            if self.stopping.is_set():
+                # The interrupt landed while this child was starting.
+                _terminate_child(process)
+                return
+            self._processes.add(process)
+
+    def discard(self, process: subprocess.Popen) -> None:
+        with self._lock:
+            self._processes.discard(process)
+
+    def request_stop(self) -> None:
+        self.stopping.set()
+        with self._lock:
+            live = list(self._processes)
+        for process in live:
+            _terminate_child(process)
+
+
 def _heartbeat_line(state_root: Path, names: list[str]) -> str:
     """One campaign progress line, built purely from the on-disk status files."""
     counts = {"pending": 0, "running": 0, "done": 0, "failed": 0}
@@ -929,6 +981,7 @@ def _run_attempt(
     smoke_epochs: int | None,
     force_fallback: bool,
     restart_reason: str | None,
+    children: _ChildProcesses | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], Path]:
     spec = get_spec(model_key)
     dataset_dir = data_dir / dataset_name
@@ -1035,10 +1088,15 @@ def _run_attempt(
     }
     atomic_write_json(status_path, status)
 
+    launched: subprocess.Popen | None = None
+
     def record_process(process: subprocess.Popen) -> None:
         import psutil
 
-        nonlocal status
+        nonlocal status, launched
+        launched = process
+        if children is not None:
+            children.add(process)
         status = dict(status)
         status.update(
             {
@@ -1049,13 +1107,17 @@ def _run_attempt(
         )
         atomic_write_json(status_path, status)
 
-    exit_code, timed_out = _launch_child(
-        worker_config_path,
-        gpu=gpu,
-        log_path=state_root / "logs" / f"{dataset_name}.log",
-        timeout_seconds=timeout_seconds,
-        on_started=record_process,
-    )
+    try:
+        exit_code, timed_out = _launch_child(
+            worker_config_path,
+            gpu=gpu,
+            log_path=state_root / "logs" / f"{dataset_name}.log",
+            timeout_seconds=timeout_seconds,
+            on_started=record_process,
+        )
+    finally:
+        if children is not None and launched is not None:
+            children.discard(launched)
     if timed_out:
         worker_result = {
             "state": "timeout",
@@ -1187,10 +1249,12 @@ def orchestrate_training(
 
     completed: list[str] = []
     failed: list[str] = []
+    interrupted: list[str] = []
     outcome_lock = threading.Lock()
+    children = _ChildProcesses()
 
     def consume(gpu: str) -> None:
-        while True:
+        while not children.stopping.is_set():
             try:
                 name = work.get_nowait()
             except queue.Empty:
@@ -1199,6 +1263,7 @@ def orchestrate_training(
                 old_status = _read_status(_status_path(state_root, name))
                 force_fallback = bool(old_status and old_status.get("run_variant") == "fallback")
                 worker_result, status, status_path = _run_attempt(
+                    children=children,
                     dataset_name=name,
                     model_key=model_key,
                     data_dir=data_dir,
@@ -1217,6 +1282,24 @@ def orchestrate_training(
                         old_status.get("restart_reason") if old_status is not None else None
                     ),
                 )
+                if children.stopping.is_set() and worker_result.get("state") != "done":
+                    # We killed this child on purpose. Leave the dataset
+                    # resumable rather than recording an operator's Ctrl-C as
+                    # a training failure; the signature is unchanged, so a
+                    # re-run picks up from the epoch-boundary last.pt.
+                    stopped_status = dict(status)
+                    stopped_status.update(
+                        {
+                            "state": "pending",
+                            "interrupted_at": utc_now(),
+                        }
+                    )
+                    stopped_status.pop("pid", None)
+                    stopped_status.pop("pid_create_time", None)
+                    atomic_write_json(status_path, stopped_status)
+                    with outcome_lock:
+                        interrupted.append(name)
+                    return
                 if (
                     worker_result.get("state") == "oom"
                     and spec.family == "rfdetr"
@@ -1337,14 +1420,28 @@ def orchestrate_training(
         target=emit_heartbeat, name="rf100vl-heartbeat", daemon=True
     )
     heartbeat_thread.start()
+    executor = ThreadPoolExecutor(max_workers=len(gpus))
+    futures: list[Any] = []
     try:
-        with ThreadPoolExecutor(max_workers=len(gpus)) as executor:
-            futures = [executor.submit(consume, gpu) for gpu in gpus]
-            for future in futures:
-                future.result()
+        futures = [executor.submit(consume, gpu) for gpu in gpus]
+        for future in futures:
+            future.result()
+    except KeyboardInterrupt:
+        print(
+            f"\n[{utc_now()}] interrupt received: stopping trainers. Datasets in "
+            "flight stay resumable; re-run the same command to continue.",
+            flush=True,
+        )
+        children.request_stop()
+        for future in futures:
+            try:
+                future.result(timeout=120)
+            except BaseException:
+                pass
     finally:
         stop_heartbeat.set()
         heartbeat_thread.join(timeout=5.0)
+        executor.shutdown(wait=True)
 
     rerun = {
         "schema_version": "rf100vl.rerun.v1",
@@ -1359,6 +1456,7 @@ def orchestrate_training(
         "protocol_conformant": (
             smoke_epochs is None
             and not failed
+            and not interrupted
             and not active_running
             and libreyolo_capabilities.get("validated") is True
         ),
@@ -1376,6 +1474,7 @@ def orchestrate_training(
         "completed": sorted(completed),
         "skipped_done": sorted(skipped_done),
         "failed": sorted(failed),
+        "interrupted": sorted(interrupted),
         "active_running": sorted(active_running),
         "failures_file": str(failures_path),
         "rerun_file": str(rerun_path),

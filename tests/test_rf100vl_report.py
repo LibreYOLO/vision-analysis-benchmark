@@ -145,3 +145,63 @@ def test_preflight_fails_on_missing_split_and_missing_dataset(tmp_path: Path) ->
     assert not by_name["data"].ok
     assert "beta" in by_name["data"].detail
     assert has_failure(checks)
+
+
+def _stats(**overrides):
+    stats = {
+        "schema_version": "rf100vl.train-stats.v1",
+        "dataset": "ds-00",
+        "dataset_version": 1,
+        "model_key": "yolov9t",
+        "seed": 0,
+        "epochs_requested": 100,
+        "versions_sha256": None,
+        "precision": "fp32",
+        "protocol_conformant": True,
+        "protocol_version": "rf100vl.libreyolo.v1",
+        "recipe": {"file": "yolov9.json", "sha256": "a" * 64},
+        "libreyolo_capabilities": {
+            "validated": True,
+            "eval_max_det": 500,
+            "default_eval_max_det": 100,
+        },
+    }
+    stats.update(overrides)
+    return stats
+
+
+def test_metadata_mismatch_reason_names_the_offending_field(tmp_path: Path) -> None:
+    """A smoke run must say which field disagrees, not a generic sentence."""
+    from va_bench.rf100vl import _recipe_repro
+
+    (tmp_path / "ds-00").mkdir()
+    (tmp_path / "ds-00" / "stats.json").write_text(
+        json.dumps(_stats(epochs_requested=2, protocol_conformant=False)), "utf-8"
+    )
+    _, reasons = _recipe_repro(None, tmp_path, ["ds-00"], model_key="yolov9t")
+    mismatch = [r for r in reasons if "does not match this campaign" in r]
+    assert len(mismatch) == 1
+    assert "epochs_requested" in mismatch[0]
+    assert "model_key" not in mismatch[0]  # only the field that actually differs
+
+
+def test_metadata_mismatch_reason_distinguishes_a_wrong_checkpoint(tmp_path: Path) -> None:
+    from va_bench.rf100vl import _recipe_repro
+
+    (tmp_path / "ds-00").mkdir()
+    (tmp_path / "ds-00" / "stats.json").write_text(
+        json.dumps(_stats(model_key="yolov9s", seed=7)), "utf-8"
+    )
+    _, reasons = _recipe_repro(None, tmp_path, ["ds-00"], model_key="yolov9t")
+    mismatch = [r for r in reasons if "does not match this campaign" in r]
+    assert len(mismatch) == 1
+    assert "model_key" in mismatch[0] and "seed" in mismatch[0]
+
+
+def test_conformant_stats_produce_no_mismatch_reason(tmp_path: Path) -> None:
+    from va_bench.rf100vl import _recipe_repro
+
+    (tmp_path / "ds-00").mkdir()
+    (tmp_path / "ds-00" / "stats.json").write_text(json.dumps(_stats()), "utf-8")
+    _, reasons = _recipe_repro(None, tmp_path, ["ds-00"], model_key="yolov9t")
+    assert reasons == []

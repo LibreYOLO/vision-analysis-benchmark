@@ -458,3 +458,34 @@ def test_smoke_leftover_detection_and_quarantine(tmp_path):
     assert not run_dir.exists()
     assert (quarantined / "weights" / "last.pt").is_file()
     assert quarantined.name.startswith("primary-smoke-")
+
+
+def test_child_registry_terminates_live_children_and_blocks_new_ones():
+    import subprocess
+    import sys
+
+    from va_bench.rf100vl_train import _ChildProcesses
+
+    children = _ChildProcesses()
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        children.add(sleeper)
+        assert sleeper.poll() is None
+        children.request_stop()
+        assert sleeper.poll() is not None, "request_stop must terminate live children"
+        assert children.stopping.is_set()
+
+        # A child that starts after the stop is killed immediately rather than
+        # being allowed to run on unsupervised.
+        late = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        try:
+            children.add(late)
+            assert late.poll() is not None
+        finally:
+            if late.poll() is None:
+                late.kill()
+                late.wait()
+    finally:
+        if sleeper.poll() is None:
+            sleeper.kill()
+            sleeper.wait()

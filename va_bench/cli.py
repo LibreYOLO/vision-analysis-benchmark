@@ -266,14 +266,20 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
         f"{len(summary['completed'])} completed, "
         f"{len(summary['skipped_done'])} already done, "
         f"{len(summary['failed'])} failed, "
+        f"{len(summary.get('interrupted', []))} interrupted, "
         f"{len(summary.get('active_running', []))} still running"
     )
     print(f"Summary: {Path(summary['rerun_file']).parent / 'summary.json'}")
     if summary["failed"]:
         print(f"Rerun list: {summary['rerun_file']}")
+    if summary.get("interrupted"):
+        print(
+            "Interrupted datasets (re-run the same command to resume): "
+            + ", ".join(summary["interrupted"])
+        )
     if summary.get("active_running"):
         print("Active datasets: " + ", ".join(summary["active_running"]))
-    if summary["failed"] or summary.get("active_running"):
+    if summary["failed"] or summary.get("interrupted") or summary.get("active_running"):
         raise SystemExit(1)
 
 
@@ -361,8 +367,16 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
     print(
         f"Training: {len(summary['completed'])} completed, "
         f"{len(summary['skipped_done'])} already done, "
-        f"{len(summary['failed'])} failed"
+        f"{len(summary['failed'])} failed, "
+        f"{len(summary.get('interrupted', []))} interrupted"
     )
+    if summary.get("interrupted"):
+        print(
+            "Not evaluating: the run was interrupted. Re-run the same command "
+            "to resume; finished datasets are skipped and interrupted ones "
+            "continue from their last epoch checkpoint."
+        )
+        raise SystemExit(1)
     if summary["failed"] or summary.get("active_running"):
         print(
             "Not evaluating: resolve the failures (rerun list: "

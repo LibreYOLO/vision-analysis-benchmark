@@ -362,7 +362,10 @@ def _recipe_repro(
     missing: list[str] = []
     nonconformant: list[str] = []
     wrong_protocol: list[str] = []
-    metadata_mismatch: list[str] = []
+    # dataset name -> the metadata fields that disagree with this campaign, so
+    # the reason can name them instead of printing one generic sentence for
+    # every possible cause.
+    metadata_mismatch: dict[str, set[str]] = {}
     expected_versions_sha256 = (
         version_lock_sha256(version_lock) if version_lock is not None else None
     )
@@ -396,19 +399,23 @@ def _recipe_repro(
             "epochs_requested": PROTOCOL_EPOCHS,
             "versions_sha256": expected_versions_sha256,
         }
-        metadata_invalid = any(
-            expected is not None and stats.get(key) != expected
+        mismatched_fields = {
+            key
             for key, expected in expected_metadata.items()
-        ) or stats.get("precision") not in {"fp32", "bfloat16"}
+            if expected is not None and stats.get(key) != expected
+        }
+        if stats.get("precision") not in {"fp32", "bfloat16"}:
+            mismatched_fields.add("precision")
         capabilities = stats.get("libreyolo_capabilities")
-        capability_invalid = (
+        if (
             not isinstance(capabilities, dict)
             or capabilities.get("validated") is not True
             or capabilities.get("eval_max_det") != PROTOCOL_MAX_DET
             or capabilities.get("default_eval_max_det") != 100
-        )
-        if metadata_invalid or capability_invalid:
-            metadata_mismatch.append(name)
+        ):
+            mismatched_fields.add("libreyolo_capabilities")
+        if mismatched_fields:
+            metadata_mismatch[name] = mismatched_fields
         recipe_file = recipe.get("file")
         if isinstance(recipe_file, str):
             files.add(recipe_file)
@@ -426,10 +433,10 @@ def _recipe_repro(
             f"{len(wrong_protocol)} evaluated checkpoints have the wrong training protocol version"
         )
     if metadata_mismatch:
+        offending = sorted({field for fields in metadata_mismatch.values() for field in fields})
         reasons.append(
-            f"{len(metadata_mismatch)} evaluated checkpoints have training "
-            "metadata that does not match the selected model, protocol, or "
-            "dataset-version lock"
+            f"{len(metadata_mismatch)} evaluated checkpoints have training metadata "
+            f"that does not match this campaign: {', '.join(offending)}"
         )
     recipe_sha = next(iter(hashes)) if len(hashes) == 1 else None
     if explicit is not None:
