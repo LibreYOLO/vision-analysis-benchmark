@@ -1191,6 +1191,7 @@ def orchestrate_training(
     num_shards: int = 1,
     timeout_hours: float = 6.0,
     jobs_per_gpu: int = 1,
+    on_dataset_complete: Callable[[str], None] | None = None,
     runs_root: str | Path | None = None,
     state_root: str | Path | None = None,
     smoke_epochs: int | None = None,
@@ -1396,6 +1397,14 @@ def orchestrate_training(
                     atomic_write_json(status_path, final_status)
                     with outcome_lock:
                         completed.append(name)
+                    # Tell the syncer AFTER the status file is on disk, so a
+                    # sync triggered by this always sees the finished state
+                    # rather than racing the write it was triggered by.
+                    if on_dataset_complete is not None:
+                        try:
+                            on_dataset_complete(name)
+                        except Exception:
+                            pass  # uploading must never fail a finished dataset
                 else:
                     record = _failure_record(
                         dataset_name=name,

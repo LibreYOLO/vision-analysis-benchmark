@@ -264,3 +264,68 @@ def test_manifest_counts_datasets_from_status_not_the_last_invocation(tmp_path):
     manifest = build_manifest(model_key="yolov9t", run_id="r", state_dir=state)
     assert manifest["dataset_states"] == {"done": 2, "pending": 1}
     assert manifest["datasets_total"] == 3
+
+
+def _syncer(monkeypatch, tmp_path, fail=False):
+    """A BackgroundSyncer whose upload is captured instead of performed."""
+    from va_bench import artifacts
+
+    calls = []
+
+    def fake_upload(items, *, repo, token=None, private=False, progress=None):
+        if fail:
+            raise RuntimeError("hub is down")
+        calls.append(list(items))
+        return {"uploaded": len(list(items)), "skipped": 0}
+
+    monkeypatch.setattr(artifacts, "upload_artifacts", fake_upload)
+    probe = tmp_path / "f.txt"
+    probe.write_text("x", encoding="utf-8")
+    syncer = artifacts.BackgroundSyncer(
+        collect=lambda: [(probe, "run/f.txt")],
+        repo="org/repo",
+        min_interval_seconds=0.0,
+    )
+    return syncer, calls
+
+
+def test_autosync_uploads_and_always_does_a_final_drain(monkeypatch, tmp_path):
+    """The last dataset must not be lost because the campaign ended."""
+    syncer, calls = _syncer(monkeypatch, tmp_path)
+    syncer.start()
+    syncer.notify("alpha")
+    syncer.stop(timeout=30)
+    assert syncer.syncs >= 1
+    assert syncer.uploaded >= 1
+    assert calls
+
+
+def test_autosync_never_raises_into_the_campaign(monkeypatch, tmp_path):
+    """Losing an upload costs a re-sync; losing a campaign costs GPU-hours."""
+    syncer, _ = _syncer(monkeypatch, tmp_path, fail=True)
+    syncer.start()
+    syncer.notify("alpha")
+    syncer.stop(timeout=30)          # must not raise
+    assert syncer.failures >= 1
+    assert "hub is down" in (syncer.last_error or "")
+
+
+def test_autosync_coalesces_a_burst_into_one_upload(monkeypatch, tmp_path):
+    """Eight datasets finishing together is one sync, not eight."""
+    from va_bench import artifacts
+
+    syncer = artifacts.BackgroundSyncer(
+        collect=lambda: [], repo="org/repo", min_interval_seconds=3600.0
+    )
+    seen = []
+    monkeypatch.setattr(
+        artifacts,
+        "upload_artifacts",
+        lambda items, **kw: (seen.append(1), {"uploaded": 0, "skipped": 0})[1],
+    )
+    syncer.start()
+    for name in "abcdefgh":
+        syncer.notify(name)
+    syncer.stop(timeout=30)
+    # The interval blocks mid-run syncs; the final drain is the single upload.
+    assert len(seen) == 1

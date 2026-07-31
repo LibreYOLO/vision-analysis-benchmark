@@ -245,7 +245,9 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
     """Train one fine-tuned checkpoint per RF100-VL dataset."""
     from .rf100vl_train import orchestrate_training
 
+    syncer, sync_run_id = _make_syncer(args, state_root)
     summary = orchestrate_training(
+        on_dataset_complete=(syncer.notify if syncer else None),
         model_key=args.model,
         data_dir=args.data_dir,
         weights_root=args.weights_root,
@@ -262,6 +264,7 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
         smoke_epochs=args.smoke_epochs,
         force=args.force,
     )
+    _stop_syncer(syncer)
     print(
         "RF100-VL training complete: "
         f"{len(summary['completed'])} completed, "
@@ -347,6 +350,96 @@ def cmd_rf100vl_gpu_report(args: argparse.Namespace) -> None:
         print(f"Wrote {args.output}")
 
 
+def _stop_syncer(syncer) -> None:
+    """Drain the final upload and report what the syncer managed."""
+    if syncer is None:
+        return
+    print("auto-sync: draining final upload...", flush=True)
+    syncer.stop()
+    message = (
+        f"auto-sync: {syncer.syncs} syncs, {syncer.uploaded} files uploaded, "
+        f"{syncer.failures} failures"
+    )
+    if syncer.last_error:
+        message += f" (last error: {syncer.last_error})"
+    print(message, flush=True)
+
+
+def _make_syncer(args: argparse.Namespace, state_root: str):
+    """Build the background artifact syncer, or None when it is not wanted.
+
+    Shared by both training verbs so neither can drift into uploading with
+    different semantics than the other.
+    """
+    repo = getattr(args, "sync_repo", None)
+    if not repo:
+        return None, None
+
+    from huggingface_hub import get_token
+
+    from .artifacts import (
+        BackgroundSyncer,
+        build_manifest,
+        collect_artifacts,
+        default_run_id,
+        write_manifest,
+    )
+
+    if get_token() is None:
+        raise SystemExit(
+            "--sync-repo needs Hugging Face credentials. Set $HF_TOKEN or run "
+            "`hf auth login`. Refusing to train for hours and only then "
+            "discover the upload cannot work."
+        )
+
+    recipe_path = getattr(args, "recipe", None)
+    if recipe_path is None:
+        try:
+            from .models import get_spec
+            from .rf100vl_train import recipe_path_for_family
+
+            recipe_path = recipe_path_for_family(get_spec(args.model).family)
+        except Exception:
+            recipe_path = None
+
+    seed = build_manifest(
+        model_key=args.model,
+        run_id="PENDING",
+        state_dir=Path(state_root),
+        data_dir=args.data_dir,
+        recipe_path=recipe_path,
+    )
+    run_id = getattr(args, "sync_run_id", None) or default_run_id(seed)
+
+    def collect_now() -> list:
+        manifest = build_manifest(
+            model_key=args.model,
+            run_id=run_id,
+            state_dir=Path(state_root),
+            data_dir=args.data_dir,
+            recipe_path=recipe_path,
+        )
+        write_manifest(Path(state_root), manifest)
+        return collect_artifacts(
+            model_key=args.model,
+            run_id=run_id,
+            weights_root=args.weights_root,
+            data_dir=args.data_dir,
+            recipe_path=recipe_path,
+            tier=getattr(args, "sync_tier", "results"),
+        )
+
+    syncer = BackgroundSyncer(
+        collect=collect_now,
+        repo=repo,
+        min_interval_seconds=getattr(args, "sync_interval_seconds", 60.0),
+        log=lambda message: print(message, flush=True),
+    )
+    syncer.start()
+    print(f"auto-sync -> {repo} run-id {run_id}")
+    return syncer, run_id
+
+
 def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
     """Preflight, train, evaluate, and report with one set of arguments."""
     from .output import save_result
@@ -354,6 +447,13 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
     from .rf100vl import benchmark_model_rf100vl
     from .rf100vl_preflight import has_failure, render, run_preflight
     from .rf100vl_report import build_report
+    from .artifacts import (
+        BackgroundSyncer,
+        build_manifest,
+        collect_artifacts,
+        default_run_id,
+        write_manifest,
+    )
     from .gpu_trace import GpuSampler, render_efficiency_report, run_dirs_from_state, write_dataset_traces
     from .rf100vl_train import orchestrate_training
 
@@ -387,7 +487,10 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
             print(f"GPU telemetry off: {sampler.error}")
             sampler = None
 
+    syncer, sync_run_id = _make_syncer(args, state_root)
+
     summary = orchestrate_training(
+        on_dataset_complete=(syncer.notify if syncer else None),
         model_key=args.model,
         data_dir=args.data_dir,
         weights_root=args.weights_root,
@@ -404,6 +507,10 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
         smoke_epochs=args.smoke_epochs,
         force=args.force,
     )
+    # Stop the sampler and write its per-dataset traces BEFORE the final sync,
+    # or the telemetry lands on disk after the last upload and never leaves the
+    # box. Ordering here is the whole difference between shipping the traces
+    # and silently dropping them.
     if sampler is not None:
         sampler.stop()
         try:
@@ -420,6 +527,8 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
                 print(f"GPU telemetry: {len(traces)} datasets -> {report_path}")
         except Exception as exc:  # never fail a finished campaign on telemetry
             print(f"GPU telemetry post-processing failed: {exc}")
+
+    _stop_syncer(syncer)
 
     print(
         f"Training: {len(summary['completed'])} completed, "
@@ -928,6 +1037,10 @@ def main(argv: list[str] | None = None) -> None:
         default="0",
         help="Comma-separated physical GPU ids",
     )
+    rft.add_argument("--sync-repo", default=None, help="Auto-upload artifacts here as datasets finish")
+    rft.add_argument("--sync-run-id", default=None)
+    rft.add_argument("--sync-tier", default="results", choices=("results", "checkpoints", "all"))
+    rft.add_argument("--sync-interval-seconds", type=float, default=60.0)
     rft.add_argument(
         "--jobs-per-gpu",
         type=int,
@@ -1056,6 +1169,21 @@ def main(argv: list[str] | None = None) -> None:
     rc.add_argument("--force", action="store_true")
     rc.add_argument("--output-dir", default="./results_rf100vl")
     rc.add_argument("--skip-preflight", action="store_true")
+    rc.add_argument(
+        "--sync-repo",
+        default=None,
+        help="Hugging Face dataset repo to auto-upload artifacts to as each "
+        "dataset finishes. Needs $HF_TOKEN. Off when unset.",
+    )
+    rc.add_argument("--sync-run-id", default=None, help="Defaults to a derived id")
+    rc.add_argument("--sync-tier", default="results", choices=("results", "checkpoints", "all"))
+    rc.add_argument(
+        "--sync-interval-seconds",
+        type=float,
+        default=60.0,
+        help="Do not sync more often than this, so a burst of completions "
+        "produces one upload rather than many",
+    )
     rc.add_argument(
         "--jobs-per-gpu",
         type=int,

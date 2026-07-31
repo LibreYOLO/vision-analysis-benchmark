@@ -237,6 +237,124 @@ def write_manifest(state_dir: str | Path, manifest: dict[str, Any]) -> Path:
     return path
 
 
+class BackgroundSyncer:
+    """Upload artifacts as the campaign produces them, never blocking it.
+
+    An interruptible box can vanish between one dataset and the next, and the
+    old advice was "run sync-artifacts after each dataset", which is toil a
+    human at 3am will skip. This does it automatically.
+
+    Three properties matter more than throughput:
+
+    * **It cannot fail the campaign.** Every exception is swallowed and
+      recorded. Losing an upload costs one re-sync; losing a campaign costs
+      GPU-hours.
+    * **It coalesces.** Several datasets finishing together produce one sync,
+      not one per dataset, because each sync is a full collect and the uploader
+      already skips unchanged files by size.
+    * **It never runs two uploads at once.** One worker thread, so concurrent
+      commits cannot race each other into a 412 on the hub.
+    """
+
+    def __init__(
+        self,
+        *,
+        collect: Callable[[], list[tuple[Path, str]]],
+        repo: str,
+        token: str | None = None,
+        private: bool = False,
+        min_interval_seconds: float = 60.0,
+        log: Callable[[str], None] | None = None,
+    ) -> None:
+        import queue as _queue
+        import threading as _threading
+
+        self._collect = collect
+        self._repo = repo
+        self._token = token
+        self._private = private
+        self._min_interval = min_interval_seconds
+        self._log = log or (lambda message: None)
+        self._queue: _queue.Queue[str | None] = _queue.Queue()
+        self._thread: _threading.Thread | None = None
+        self._stopping = _threading.Event()
+        self.syncs = 0
+        self.uploaded = 0
+        self.failures = 0
+        self.last_error: str | None = None
+
+    def start(self) -> None:
+        import threading as _threading
+
+        self._thread = _threading.Thread(
+            target=self._run, name="artifact-syncer", daemon=True
+        )
+        self._thread.start()
+
+    def notify(self, dataset: str) -> None:
+        self._queue.put(dataset)
+
+    def stop(self, timeout: float = 600.0) -> None:
+        """Drain, then run one final sync so the last dataset is never lost."""
+        self._stopping.set()
+        self._queue.put(None)
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+
+    def _run(self) -> None:
+        import queue as _queue
+        import time as _time
+
+        last_sync = 0.0
+        pending: list[str] = []
+        while True:
+            try:
+                item = self._queue.get(timeout=5.0)
+                if item is None:
+                    self._sync(pending, final=True)
+                    return
+                pending.append(item)
+            except _queue.Empty:
+                if self._stopping.is_set():
+                    self._sync(pending, final=True)
+                    return
+                if not pending:
+                    continue
+            # Drain anything that arrived while we were waiting.
+            while True:
+                try:
+                    extra = self._queue.get_nowait()
+                except _queue.Empty:
+                    break
+                if extra is None:
+                    self._sync(pending, final=True)
+                    return
+                pending.append(extra)
+            if pending and _time.time() - last_sync >= self._min_interval:
+                self._sync(pending)
+                pending = []
+                last_sync = _time.time()
+
+    def _sync(self, datasets: list[str], final: bool = False) -> None:
+        label = "final" if final else f"after {', '.join(datasets[:3])}"
+        try:
+            items = self._collect()
+            result = upload_artifacts(
+                items, repo=self._repo, token=self._token, private=self._private
+            )
+            self.syncs += 1
+            self.uploaded += result["uploaded"]
+            if result["uploaded"]:
+                self._log(
+                    f"auto-sync ({label}): uploaded {result['uploaded']}, "
+                    f"skipped {result['skipped']}"
+                )
+        except Exception as exc:  # never fail a campaign over an upload
+            self.failures += 1
+            self.last_error = str(exc)
+            self._log(f"auto-sync ({label}) FAILED, will retry later: {exc}")
+
+
 def default_run_id(manifest: dict[str, Any]) -> str:
     """A run id nobody has to invent, and nobody can accidentally reuse.
 
