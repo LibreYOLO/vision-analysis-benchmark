@@ -219,12 +219,21 @@ def upload_artifacts(
     items: Iterable[tuple[Path, str]],
     *,
     repo: str,
-    token: str,
+    token: str | None = None,
     private: bool = False,
     progress: Callable[[str], None] | None = None,
 ) -> dict[str, int]:
-    """Upload, skipping anything already present so a partial sync resumes."""
-    from huggingface_hub import HfApi
+    """Upload, skipping anything already present so a partial sync resumes.
+
+    ``token=None`` lets huggingface_hub resolve credentials the standard way:
+    an explicit token, then ``HF_TOKEN``, then the file written by
+    ``hf auth login``. Do not re-implement that lookup.
+
+    Everything lands in ONE commit. A results-tier sync is several hundred
+    files, and one commit per file makes the repo history unusable and invites
+    rate limiting.
+    """
+    from huggingface_hub import CommitOperationAdd, HfApi
 
     api = HfApi(token=token)
     # A campaign token should be fine-grained and scoped to this one repo, which
@@ -243,14 +252,22 @@ def upload_artifacts(
             ) from error
     existing = set(api.list_repo_files(repo, repo_type="dataset"))
 
-    uploaded = skipped = 0
+    operations = []
+    skipped = 0
     for path, repo_path in items:
         if repo_path in existing:
             skipped += 1
             continue
-        api.upload_file(path_or_fileobj=str(path), path_in_repo=repo_path,
-                        repo_id=repo, repo_type="dataset")
-        uploaded += 1
+        operations.append(
+            CommitOperationAdd(path_in_repo=repo_path, path_or_fileobj=str(path))
+        )
         if progress:
             progress(f"+ {repo_path}")
-    return {"uploaded": uploaded, "skipped": skipped}
+    if operations:
+        api.create_commit(
+            repo_id=repo,
+            repo_type="dataset",
+            operations=operations,
+            commit_message=f"Add {len(operations)} RF100-VL campaign artifacts",
+        )
+    return {"uploaded": len(operations), "skipped": skipped}

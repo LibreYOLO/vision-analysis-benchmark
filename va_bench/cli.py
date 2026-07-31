@@ -450,16 +450,20 @@ def cmd_sync_artifacts(args: argparse.Namespace) -> None:
         print("nothing to sync")
         return
 
-    token = os.environ.get("HF_TOKEN", "").strip()
-    if not token:
-        token_file = Path.home() / ".config" / "huggingface" / "token"
-        if token_file.exists():
-            token = token_file.read_text(encoding="utf-8").strip()
-    if not token:
-        raise SystemExit("no HF token in $HF_TOKEN or ~/.config/huggingface/token")
+    # Credential resolution is huggingface_hub's job: an explicit token, then
+    # $HF_TOKEN, then the file written by `hf auth login` (under HF_HOME, not
+    # ~/.config). Re-implementing it only produces wrong answers.
+    from huggingface_hub import get_token
+
+    if get_token() is None:
+        raise SystemExit(
+            "no Hugging Face token found. Set $HF_TOKEN, or run `hf auth login`. "
+            "For a campaign, prefer a fine-grained token scoped to "
+            f"{args.repo!r} with write access only."
+        )
 
     result = upload_artifacts(
-        items, repo=args.repo, token=token, private=args.private,
+        items, repo=args.repo, token=None, private=args.private,
         progress=lambda line: print(f"  {line}", flush=True),
     )
     print(f"\nuploaded {result['uploaded']}, skipped {result['skipped']} already present")
