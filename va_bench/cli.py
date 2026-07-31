@@ -216,6 +216,7 @@ def cmd_rf100vl(args: argparse.Namespace) -> None:
                 split=args.split,
                 limit=args.limit,
                 limit_datasets=args.limit_datasets,
+                datasets=args.datasets,
                 allow_pretrained=args.allow_pretrained,
                 versions_path=args.versions,
                 recipe_path=args.recipe,
@@ -274,6 +275,18 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
         print("Active datasets: " + ", ".join(summary["active_running"]))
     if summary["failed"] or summary.get("active_running"):
         raise SystemExit(1)
+
+
+def cmd_rf100vl_dash(args: argparse.Namespace) -> None:
+    """Serve the live campaign dashboard."""
+    from .rf100vl_dash import serve
+
+    serve(
+        state_root=Path(args.state_root),
+        host=args.host,
+        port=args.port,
+        open_browser=args.open,
+    )
 
 
 def cmd_sync_artifacts(args: argparse.Namespace) -> None:
@@ -615,6 +628,13 @@ def main(argv: list[str] | None = None) -> None:
         help="Evaluate only the first N datasets (smoke run; NOT submittable)",
     )
     rf.add_argument(
+        "--datasets",
+        nargs="+",
+        default=None,
+        help="Evaluate only these datasets by name (partial run; NOT submittable). "
+        "For the dataset literally named -grccs write --datasets=-grccs.",
+    )
+    rf.add_argument(
         "--output-dir",
         type=str,
         default="./results_rf100vl",
@@ -653,7 +673,8 @@ def main(argv: list[str] | None = None) -> None:
         "--datasets",
         nargs="+",
         default=None,
-        help="Optional dataset names. Scheduling is always by name, never index.",
+        help="Optional dataset names. Scheduling is always by name, never index, "
+        "and runs in alphabetical order regardless of the order given here.",
     )
     rft.add_argument(
         "--limit-datasets",
@@ -700,6 +721,26 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Re-enter datasets already marked done (resume safety still applies)",
     )
+
+    # --- rf100vl-dash ---
+    rd = subparsers.add_parser(
+        "rf100vl-dash",
+        help="Live web dashboard for an RF100-VL training campaign (read-only)",
+    )
+    rd.add_argument(
+        "--state-root",
+        required=True,
+        help="Campaign state dir: <weights-root>/.state (all models) or "
+        "<weights-root>/.state/<model> (one model)",
+    )
+    rd.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address (default 127.0.0.1; on a rented box keep the default "
+        "and use an SSH tunnel: ssh -L 8877:127.0.0.1:8877 <box>)",
+    )
+    rd.add_argument("--port", type=int, default=8877, help="Port (default: 8877)")
+    rd.add_argument("--open", action="store_true", help="Open the browser")
 
     # --- sync-artifacts ---
     sa = subparsers.add_parser(
@@ -750,6 +791,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_rf100vl(args)
     elif args.command == "rf100vl-train":
         cmd_rf100vl_train(args)
+    elif args.command == "rf100vl-dash":
+        cmd_rf100vl_dash(args)
     elif args.command == "sync-artifacts":
         cmd_sync_artifacts(args)
     elif args.command == "rescore":

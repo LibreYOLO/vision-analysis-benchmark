@@ -747,6 +747,46 @@ def _worker_result_path(
     return state_root / "worker-results" / f"{dataset_name}.{signature[:16]}.json"
 
 
+def _heartbeat_line(state_root: Path, names: list[str]) -> str:
+    """One campaign progress line, built purely from the on-disk status files."""
+    counts = {"pending": 0, "running": 0, "done": 0, "failed": 0}
+    running: list[str] = []
+    for name in names:
+        status = _read_status(_status_path(state_root, name)) or {}
+        state = str(status.get("state", "pending"))
+        counts[state if state in counts else "pending"] += 1
+        if state != "running":
+            continue
+        detail = f"{name}[gpu{status.get('gpu', '?')}]"
+        live: dict[str, Any] = {}
+        run_dir = status.get("run_dir")
+        if run_dir:
+            try:
+                loaded = load_json(Path(run_dir) / "status.json")
+                if isinstance(loaded, dict):
+                    live = loaded
+            except Exception:
+                pass  # trainer may be mid-write; skip the detail this round
+        if live:
+            detail += (
+                f" {live.get('completed_epochs', '?')}/{live.get('total_epochs', '?')}"
+            )
+            best = live.get("best_metric")
+            if isinstance(best, (int, float)):
+                detail += f" best {best:.3f}"
+            eta = live.get("eta_seconds")
+            if isinstance(eta, (int, float)) and eta > 0:
+                detail += f" eta {max(1, round(eta / 60))}m"
+        running.append(detail)
+    line = (
+        f"[{utc_now()}] progress: {counts['done']} done, {counts['running']} running, "
+        f"{counts['pending']} pending, {counts['failed']} failed"
+    )
+    if running:
+        line += " | " + "; ".join(running)
+    return line
+
+
 def _launch_child(
     worker_config: Path,
     *,
@@ -1005,6 +1045,10 @@ def orchestrate_training(
     force: bool = False,
 ) -> dict[str, Any]:
     """Run a name-addressed dataset queue with one child process per GPU."""
+    # Heartbeat interval for the periodic progress line on stdout. The
+    # orchestrator is otherwise silent between launch and summary, which on a
+    # multi-hour campaign reads as a hang.
+    heartbeat_seconds = 60.0
     libreyolo_capabilities = require_libreyolo_protocol_capabilities()
     spec = get_spec(model_key)
     data_dir = Path(data_dir).resolve()
@@ -1231,10 +1275,27 @@ def orchestrate_training(
             finally:
                 work.task_done()
 
-    with ThreadPoolExecutor(max_workers=len(gpus)) as executor:
-        futures = [executor.submit(consume, gpu) for gpu in gpus]
-        for future in futures:
-            future.result()
+    stop_heartbeat = threading.Event()
+
+    def emit_heartbeat() -> None:
+        while not stop_heartbeat.wait(heartbeat_seconds):
+            try:
+                print(_heartbeat_line(state_root, names), flush=True)
+            except Exception:
+                pass  # a broken progress line must never touch the campaign
+
+    heartbeat_thread = threading.Thread(
+        target=emit_heartbeat, name="rf100vl-heartbeat", daemon=True
+    )
+    heartbeat_thread.start()
+    try:
+        with ThreadPoolExecutor(max_workers=len(gpus)) as executor:
+            futures = [executor.submit(consume, gpu) for gpu in gpus]
+            for future in futures:
+                future.result()
+    finally:
+        stop_heartbeat.set()
+        heartbeat_thread.join(timeout=5.0)
 
     rerun = {
         "schema_version": "rf100vl.rerun.v1",

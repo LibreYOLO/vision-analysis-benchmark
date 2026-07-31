@@ -538,6 +538,7 @@ def benchmark_model_rf100vl(
     split: str = "test",
     limit: int | None = None,
     limit_datasets: int | None = None,
+    datasets: list[str] | None = None,
     allow_pretrained: bool = False,
     versions_path: str | Path | None = None,
     recipe_path: str | Path | None = None,
@@ -557,6 +558,8 @@ def benchmark_model_rf100vl(
         split: Which split to score ("test" per the RF100-VL protocol).
         limit: Max images per dataset (smoke runs only; not submittable).
         limit_datasets: Evaluate only the first N datasets (smoke runs only).
+        datasets: Evaluate only these datasets by name (partial run; not
+            submittable). Names must exist under ``data_dir``.
         allow_pretrained: Permit registry COCO weights when weights_root is
             not given. Scores are meaningless for closed-vocab models; exists
             for smoke tests and open-vocabulary models.
@@ -593,6 +596,17 @@ def benchmark_model_rf100vl(
     data_dir = Path(data_dir)
     dataset_dirs = discover_datasets(data_dir, split=split)
     num_datasets_discovered = len(dataset_dirs)
+    if datasets is not None:
+        requested = set(datasets)
+        if not requested:
+            raise ValueError("datasets filter must name at least one dataset")
+        by_name = {path.name: path for path in dataset_dirs}
+        unknown = sorted(requested - set(by_name))
+        if unknown:
+            raise ValueError(
+                "Requested datasets not found under data_dir: " + ", ".join(unknown)
+            )
+        dataset_dirs = [by_name[name] for name in sorted(requested)]
     if limit_datasets is not None:
         dataset_dirs = dataset_dirs[:limit_datasets]
     selected_names = [path.name for path in dataset_dirs]
@@ -951,6 +965,8 @@ def benchmark_model_rf100vl(
         invalid_reasons.append(f"{len(skipped)} datasets had no checkpoint")
     if limit is not None or limit_datasets is not None:
         invalid_reasons.append("an image or dataset smoke-test limit was applied")
+    if datasets is not None:
+        invalid_reasons.append("an explicit dataset name filter was applied")
     if not np.isclose(iou, PROTOCOL_IOU, rtol=0.0, atol=1e-12):
         invalid_reasons.append(f"NMS IoU is {iou}, protocol requires {PROTOCOL_IOU}")
     if max_det != PROTOCOL_MAX_DET:
@@ -992,10 +1008,11 @@ def benchmark_model_rf100vl(
         "datasets": per_dataset_records,
         "skipped_datasets": skipped,
     }
-    if limit is not None or limit_datasets is not None:
+    if limit is not None or limit_datasets is not None or datasets is not None:
         result["rf100vl"]["subset_run"] = {
             "limit_images": limit,
             "limit_datasets": limit_datasets,
+            "datasets": sorted(datasets) if datasets is not None else None,
             "note": "SUBSET - not a valid RF100-VL submission",
         }
     return result
