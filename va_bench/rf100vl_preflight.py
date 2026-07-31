@@ -25,6 +25,11 @@ from .rf100vl_data import ANNOTATION_FILENAME, load_version_lock
 
 _SPLITS = ("train", "valid", "test")
 _MIN_FREE_GB = 20.0
+# Where the dataset and the published artifacts live. A rented host that
+# cannot reach this is useless for a campaign even when its GPUs are perfect,
+# and the failure looks like a hung download rather than an error.
+_HUB_URL = "https://huggingface.co/api/datasets/LibreYOLO/rf100-vl"
+_HUB_TIMEOUT_SECONDS = 20.0
 
 
 @dataclass
@@ -128,6 +133,34 @@ def _check_gpu() -> Check:
     return Check("gpu", True, f"{len(names)}x " + "; ".join(sorted(set(names))))
 
 
+def _check_hub() -> Check:
+    """Can this box reach the artifact hub at all?
+
+    Rented hosts have been observed resolving huggingface.co to IPv6 only with
+    no IPv6 egress, and others block it outright while PyPI and GitHub work
+    fine. Either way ``snapshot_download`` simply hangs with no output, which
+    is expensive to diagnose after a box is already provisioned.
+    """
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(_HUB_URL, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=_HUB_TIMEOUT_SECONDS) as response:
+            code = response.status
+    except urllib.error.HTTPError as error:
+        # The host answered; auth or rate limits are not a reachability problem.
+        return Check("hub", True, f"huggingface.co reachable (HTTP {error.code})")
+    except Exception as error:
+        return Check(
+            "hub",
+            False,
+            f"cannot reach huggingface.co ({type(error).__name__}: {error}); "
+            "staging and artifact upload will hang on this host",
+        )
+    return Check("hub", True, f"huggingface.co reachable (HTTP {code})")
+
+
 def _check_disk(weights_root: Path) -> Check:
     probe = weights_root
     while not probe.exists() and probe.parent != probe:
@@ -180,6 +213,8 @@ def run_preflight(
         checks.append(_check_recipe(model_key, recipe))
     if "gpu" not in skip:
         checks.append(_check_gpu())
+    if "hub" not in skip:
+        checks.append(_check_hub())
     if "disk" not in skip:
         checks.append(_check_disk(weights_root))
     if "write" not in skip:

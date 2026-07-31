@@ -37,10 +37,23 @@ is). Delete `rehearsal-ckpt` afterwards. That is the entire skill set.
 Go to https://cloud.vast.ai (log in), Search tab:
 
 - Filters: GPU = RTX 5090, GPUs = 8x, Verified, Disk >= 300 GB.
-- Instance configuration, template/image:
-  `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime`
-  (this exact tag: 5090s are sm_120 and older CUDA images cannot run them).
+- Instance configuration, image:
+  **`vastai/pytorch:2.11.0-cu128-cuda-12.9-mini-py312-2026-06-15`**
   Disk slider: 300 GB.
+
+  This exact tag, for two reasons learned the expensive way. It is one of
+  Vast's OWN images, so key injection and sshd take their well-travelled
+  provisioning path; a plain `pytorch/pytorch` image works on many hosts but
+  on others sshd rejects your key with `bad ownership or modes for file
+  /root/.ssh/authorized_keys`, and there is no way in to fix it. And it is
+  built with cu128, so it has sm_120 kernels: Vast's default `vastai/pytorch`
+  tag raises `no kernel image is available for execution on the device` on a
+  5090.
+
+  **The interpreter is `/venv/main/bin/python`, not `python`.** Vast images
+  keep their environment in a venv that a non-interactive `ssh host command`
+  does not have on PATH. Install with `/venv/main/bin/python -m pip install`,
+  and the console scripts land in `/venv/main/bin/`.
 - Pricing: On-Demand for your first flights (interruptible is cheaper but
   adds a failure mode you do not need while learning).
 
@@ -104,27 +117,63 @@ python -c "import torch; print(torch.__version__, torch.cuda.get_arch_list())"
                            # expect 2.11.0+cu128 and sm_120 in the list
 ```
 
+## 2b. Accept or reject the box (60 seconds, do this FIRST)
+
+Rented hosts vary enormously and the marketplace does not grade the things
+that matter to us. Run the acceptance test before installing anything:
+
+```bash
+scp -P <PORT> deploy/vast/accept-box.sh root@<HOST>:/root/
+ssh -p <PORT> root@<HOST> bash /root/accept-box.sh
+```
+
+or inline, if you would rather not copy a file:
+
+```bash
+echo "hf: $(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+  https://huggingface.co/api/datasets/LibreYOLO/rf100-vl)"
+nvidia-smi --query-gpu=name --format=csv,noheader | wc -l
+/venv/main/bin/python -c "import torch; print('sm120:', 'sm_120' in torch.cuda.get_arch_list())"
+```
+
+Want `hf: 200`, your GPU count, and `sm120: True`. Anything else: destroy the
+box immediately and rent another. A dud caught here costs about five cents;
+the same dud caught after staging 43 GB costs twenty minutes and a dollar.
+
+**Expect to burn two or three hosts.** In one evening we hit, on separate
+machines: an offer that would not schedule, a broken NVIDIA container runtime
+(`OCI runtime create failed`), two hosts whose networks could not reach
+huggingface.co (one IPv6-only with no IPv6 egress, one blocked outright while
+PyPI and GitHub worked), a host that wrote `authorized_keys` with bad modes,
+and one that could not pull from Docker Hub at all. None of these are
+detectable from the offer card. Budget roughly a dollar for the search.
+
+The most dangerous of those is the network one, because `snapshot_download`
+does not error: it hangs silently, forever, while the meter runs.
+
 ## 3. Install (paste block, ~3 minutes)
 
 ```bash
-export PIP_BREAK_SYSTEM_PACKAGES=1   # Ubuntu 24.04 image blocks pip otherwise
+P=/venv/main/bin/python                # the venv interpreter, see section 1
 apt-get update -qq && apt-get install -y -qq git tmux rsync \
   libgl1 libglib2.0-0 libxcb1 libxrender1 libxext6 libsm6
 
-# Pin the image's torch so nothing swaps in a wrong wheel underneath you.
-python - <<'PY' > /root/constraints.txt
-import torch, torchvision
-print(f"torch=={torch.__version__.split('+')[0]}")
-print(f"torchvision=={torchvision.__version__.split('+')[0]}")
-PY
-
-pip install -q -c /root/constraints.txt \
+$P -m pip install -q \
   "libreyolo[rfdetr] @ git+https://github.com/LibreYOLO/libreyolo@19b9321ab11450f9d9569ca059e2346267a51aca"
-pip install -q -c /root/constraints.txt \
+$P -m pip install -q \
   "git+https://github.com/LibreYOLO/vision-analysis-benchmark.git@rf100vl-harness" \
   pycocotools huggingface_hub psutil pyyaml
-va-bench --help | head -5              # proves the install
+
+# Prove the install AND that nothing downgraded torch out of cu128.
+$P -c "import torch, libreyolo; print(torch.__version__, 'sm120', 'sm_120' in torch.cuda.get_arch_list(), 'libreyolo', libreyolo.__version__)"
+/venv/main/bin/va-bench --help | head -3
 ```
+
+Expect `2.11.0+cu128 sm120 True libreyolo 1.4.0`. If torch lost `+cu128`, a
+dependency pulled a different wheel: reinstall it from the cu128 index before
+going further, because training would silently fall back or fail to launch
+kernels. (`PIP_BREAK_SYSTEM_PACKAGES=1` is only needed on plain Debian-based
+images, not on the Vast image, which installs into its own venv.)
 
 The libreyolo commit above is the validated campaign pin. Bump it
 deliberately after testing, never casually.
@@ -260,7 +309,21 @@ scp -P <PORT> -r root@<HOST-IP>:/root/results_rf100vl ./rf100vl-results
 scp -P <PORT> -r root@<HOST-IP>:/root/rf100vl-weights ./rf100vl-weights   # ~3GB, optional
 ```
 
-Optional off-box archive to Hugging Face (needs a write token in the env):
+Off-box archive to Hugging Face. Set the token up ONCE, before the campaign,
+and scope it as narrowly as the job allows:
+
+1. Create the dataset repo by hand at https://huggingface.co/new-dataset
+   (owner `LibreYOLO`, name `rf100-vl-results`). Doing this manually means the
+   token never needs repo-creation rights, which is the broad permission worth
+   avoiding.
+2. Settings -> Access Tokens -> New token -> **Fine-grained**. Under
+   Repository permissions pick that one repo and tick only
+   **Write access to contents/settings**. Nothing at org or user level.
+3. `export HF_TOKEN=hf_...` on the box, never in a committed file. Revoke it
+   when the campaign ends.
+
+The uploader tolerates exactly this: it attempts `create_repo` but treats a
+refusal as fine when the repo already exists and is writable.
 
 ```bash
 va-bench sync-artifacts --model yolov9t --run-id <today>-yolov9t \

@@ -227,7 +227,20 @@ def upload_artifacts(
     from huggingface_hub import HfApi
 
     api = HfApi(token=token)
-    api.create_repo(repo, repo_type="dataset", private=private, exist_ok=True)
+    # A campaign token should be fine-grained and scoped to this one repo, which
+    # means it may legitimately lack permission to CREATE repos. Creation is
+    # therefore best-effort: if the repo is already there and writable, a
+    # refused create is not an error.
+    try:
+        api.create_repo(repo, repo_type="dataset", private=private, exist_ok=True)
+    except Exception:
+        try:
+            api.repo_info(repo, repo_type="dataset")
+        except Exception as error:
+            raise RuntimeError(
+                f"cannot create or reach {repo!r}: {error}. Create the dataset "
+                "repo once by hand, then scope the token to it with write access."
+            ) from error
     existing = set(api.list_repo_files(repo, repo_type="dataset"))
 
     uploaded = skipped = 0
