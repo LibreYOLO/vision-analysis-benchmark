@@ -44,6 +44,31 @@ Go to https://cloud.vast.ai (log in), Search tab:
 - Pricing: On-Demand for your first flights (interruptible is cheaper but
   adds a failure mode you do not need while learning).
 
+**If the console rejects the rental with `invalid_args`, do not fight the
+form.** Its template editor has been observed silently reverting edits on
+save, cloning a new template per attempt, and preserving a leading space in
+the image path (` pytorch/pytorch`), which is not a real image name. Create
+the template through the API instead, once:
+
+```bash
+vastai create template --name LIBREYOLO-RF100VL \
+  --image pytorch/pytorch --image_tag 2.11.0-cuda12.8-cudnn9-runtime \
+  --ssh --direct --disk_space 200
+```
+
+or skip templates entirely and rent from the CLI, which ignores them:
+
+```bash
+vastai create instance <OFFER_ID> \
+  --image pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime \
+  --disk 200 --ssh --direct --cancel-unavail --label rf100vl
+```
+
+`--cancel-unavail` matters: without it, a taken offer yields a *stopped*
+instance that bills its disk while doing nothing. Never pass `--env` port
+blocks or `--onstart-cmd entrypoint.sh` with this image; those belong to
+Vast's own `vastai/pytorch` image and fail here.
+
 THE PRICE IS ON THE OFFER CARD. That $/hr times the hours until you destroy
 is your bill, plus cents of storage and bandwidth. Expect around $2.2 to
 $2.8/hr for a good 8x5090. Click RENT. The Instances tab now shows your box
@@ -56,6 +81,19 @@ Instances tab, the ">_" (Connect) button shows the exact line, shaped like:
 ```bash
 ssh -p <PORT> root@<HOST-IP>
 ```
+
+`Permission denied (publickey)` on the first attempt is normal rather than
+broken. Your public key has to be on the account AND on the instance, and
+propagation takes a few seconds:
+
+```bash
+vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)"   # once per account
+vastai attach ssh <INSTANCE_ID> "$(cat ~/.ssh/id_ed25519.pub)"
+```
+
+Then retry, naming the key explicitly (`ssh -i ~/.ssh/id_ed25519 ...`), and
+try the direct address (`public_ipaddr` with `direct_port_start`, from
+`vastai show instances-v1`) if the proxy host keeps refusing.
 
 It works from PowerShell or Git Bash. First contact, look around:
 
@@ -99,8 +137,20 @@ python -c "from huggingface_hub import snapshot_download; \
   snapshot_download('LibreYOLO/rf100-vl', repo_type='dataset', \
                     local_dir='rf100-vl', max_workers=8)"
 cd rf100-vl && for f in *.tar; do tar xf "$f" && rm "$f"; done && cd /root
-ls rf100-vl | wc -l                    # expect 101+ (100 datasets + metadata)
+rm -f ./-grccs.tar                     # see below
+ls rf100-vl | wc -l                    # expect ~104 (100 datasets + metadata)
 ```
+
+Two things this step reliably teaches:
+
+- **Run the download and the extraction as separate commands.** Pasting a
+  multi-line block queues the later lines, so a Ctrl-C during the download
+  leaves the extract loop running against a half-finished directory. The
+  download itself resumes fine: re-run the same snapshot_download.
+- **One dataset is named `-grccs`.** The `rm "$f"` in that loop reads
+  `-grccs.tar` as command-line flags and fails (tar itself is fine, so the
+  data is extracted). Delete it with a path prefix: `rm ./-grccs.tar`. The
+  same trap applies to the harness flags, hence `--datasets=-grccs`.
 
 ## 5. Preflight (30 seconds, reads like a checklist)
 
@@ -116,12 +166,17 @@ destroy; never proceed past a FAIL.
 
 ## 6. tmux, then a smoke (10 minutes)
 
-The run must survive your wifi. Three tmux commands are the entire lesson:
+The run must survive your wifi. Vast already logs you into a tmux session
+called `ssh_tmux`, so you are protected from the first keystroke and a new
+`ssh` drops you back into the same session with your jobs still running. Do
+not nest a second session inside it. The shortcuts worth knowing:
 
-```bash
-tmux new -s bench      # start a session (you are now "inside")
-# Ctrl-b then d        # detach: everything keeps running
-tmux attach -t bench   # come back later, even from a new ssh login
+```
+Ctrl-b d      detach (everything keeps running); ssh back in to return
+Ctrl-b c      new window, e.g. for nvidia-smi or the dashboard
+Ctrl-b n / p  next / previous window
+Ctrl-b [      scroll mode (PgUp/PgDn, q quits)
+tmux set -g mouse on    # once, if you prefer the scroll wheel
 ```
 
 Inside tmux, a two-dataset, two-epoch shakeout of the full pipeline:
@@ -218,8 +273,13 @@ Instances tab is empty. That is the moment billing ends.
 
 ## Aborting at any point
 
-Destroy the box. That is always safe and always stops the spend. You lose
-whatever was not pulled or synced (at worst: partial training that would
+**Stop the run, keep the box:** Ctrl-C in the tmux window. The orchestrator
+terminates the trainers, marks the datasets that were mid-flight as pending,
+and exits. Re-running the identical command resumes: finished datasets are
+skipped, interrupted ones continue from their last epoch checkpoint.
+
+**Stop everything:** destroy the box. Always safe, always ends the spend. You
+lose whatever was not pulled or synced (at worst, partial training that would
 re-run next time); you keep everything you copied off. There is no state
 anywhere except that box, your laptop, and whatever you pushed to HF.
 
