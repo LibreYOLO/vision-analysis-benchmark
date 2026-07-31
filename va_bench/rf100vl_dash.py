@@ -143,6 +143,67 @@ _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 _SIZE_CACHE: dict[str, dict[str, int]] = {}
 
 
+def read_gpu(state_root: Path, model: str, seconds: int = 600) -> dict[str, Any]:
+    """Recent GPU telemetry per card, straight off the sampler's JSONL.
+
+    Reads only the tail: a campaign writes one line per card per second, so the
+    whole file is large and the last few minutes is what a live page wants.
+    """
+    model_dirs = _model_state_dirs(state_root)
+    model_dir = model_dirs.get(model) or next(iter(model_dirs.values()), None)
+    if model_dir is None:
+        return {"gpus": []}
+    gpu_dir = model_dir / "gpu"
+    meta = _read_json(gpu_dir / "meta.json") or {}
+    poll = float(meta.get("poll_seconds") or 1.0)
+    want = max(10, int(seconds / max(poll, 0.001)))
+
+    cards = []
+    for path in sorted(gpu_dir.glob("gpu*.jsonl")):
+        try:
+            with path.open("rb") as handle:
+                handle.seek(0, 2)
+                size = handle.tell()
+                # ~300 bytes per record; grab a generous slice and keep the tail.
+                handle.seek(max(0, size - want * 400))
+                lines = handle.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            continue
+        records = []
+        for line in lines[-want:]:
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        if not records:
+            continue
+        last = records[-1]
+        gpu_meta = (meta.get("gpus") or {}).get(str(last.get("gpu")), {})
+        cap = gpu_meta.get("power_cap_w")
+        cards.append(
+            {
+                "gpu": last.get("gpu"),
+                "name": gpu_meta.get("name"),
+                "datasets": last.get("datasets") or ([last["dataset"]] if last.get("dataset") else []),
+                "shared": bool(last.get("shared")),
+                "power_cap_w": cap,
+                "mem_total_mb": gpu_meta.get("mem_total_mb"),
+                "mem_used_mb": last.get("mem_used_mb"),
+                "temp_c": last.get("temp_c"),
+                "throttle": last.get("throttle") or [],
+                # Peaks, not means: a smoothed line is exactly what hides a spike.
+                "util_max": [(r.get("util") or {}).get("max") for r in records],
+                "util_mean": [(r.get("util") or {}).get("mean") for r in records],
+                "power_mean": [(r.get("power_w") or {}).get("mean") for r in records],
+                "ts": [r.get("ts") for r in records],
+            }
+        )
+    return {"poll_seconds": poll, "gpus": cards}
+
+
 def _train_image_counts(model_dir: Path, data_dir: Path | None = None) -> dict[str, int]:
     """dataset -> training image count.
 
@@ -444,6 +505,7 @@ pre { margin-top:8px; background:#0d1117; border:1px solid var(--line);
 <div class="dim small" id="root"></div>
 <div class="small" id="prov"></div>
 <div id="err"></div>
+<div id="gpus"></div>
 <div id="models"></div>
 <div id="drawer">
   <span class="x" onclick="closeDrawer()">&#10005;</span>
@@ -535,9 +597,65 @@ function renderProvenance(state) {
     '<span class="dim">' + bits.join(" &middot; ") + "</span>" + warn;
 }
 
+function fmtGpu(c) {
+  const cap = c.power_cap_w || 0;
+  const pw = c.power_mean.filter(function (v) { return v != null; });
+  const um = c.util_max.filter(function (v) { return v != null; });
+  const meanPw = pw.length ? pw.reduce(function (a, b) { return a + b; }, 0) / pw.length : 0;
+  const meanUt = c.util_mean.filter(function (v) { return v != null; });
+  const avgUt = meanUt.length ? meanUt.reduce(function (a, b) { return a + b; }, 0) / meanUt.length : 0;
+  const peak = um.length ? Math.max.apply(null, um) : 0;
+  const memPct = c.mem_total_mb ? (100 * c.mem_used_mb / c.mem_total_mb) : 0;
+  const pwPct = cap ? (100 * meanPw / cap) : 0;
+
+  // Sparkline of PEAKS. Plotting means would smooth away the spikes that are
+  // the only reason to look at this at all.
+  let spark = "";
+  const pts = c.util_max.filter(function (v) { return v != null; }).slice(-120);
+  if (pts.length) {
+    const w = 240, h = 26;
+    const step = w / Math.max(1, pts.length - 1);
+    spark = '<svg width="' + w + '" height="' + h + '" style="vertical-align:middle">' +
+      '<polyline fill="none" stroke="#7fd1ff" stroke-width="1.2" points="' +
+      pts.map(function (v, i) { return (i * step).toFixed(1) + "," + (h - (v / 100) * h).toFixed(1); }).join(" ") +
+      '" /></svg>';
+  }
+  const who = c.datasets.length === 0 ? '<span class="dim">idle</span>'
+    : c.datasets.length === 1 ? c.datasets[0]
+    : '<span title="' + c.datasets.join(", ") + '">' + c.datasets.length +
+      ' jobs <span class="dim">(shared)</span></span>';
+  const hot = (c.throttle && c.throttle.length)
+    ? ' <b style="color:#ff8f98">' + c.throttle.join(",") + '</b>' : "";
+  return '<tr><td>GPU ' + c.gpu + '</td><td>' + who + '</td>' +
+    '<td>' + spark + '</td>' +
+    '<td>' + avgUt.toFixed(0) + '% <span class="dim">mean</span></td>' +
+    '<td>' + peak.toFixed(0) + '% <span class="dim">peak</span></td>' +
+    '<td>' + meanPw.toFixed(0) + 'W <span class="dim">/' + cap.toFixed(0) + ' (' + pwPct.toFixed(0) + '%)</span></td>' +
+    '<td>' + (c.mem_used_mb / 1024).toFixed(1) + 'G <span class="dim">/' +
+      ((c.mem_total_mb || 0) / 1024).toFixed(0) + 'G (' + memPct.toFixed(0) + '%)</span></td>' +
+    '<td>' + (c.temp_c != null ? c.temp_c + "C" : "?") + hot + '</td></tr>';
+}
+
+function renderGpus(data) {
+  const el = document.getElementById("gpus");
+  if (!data || !data.gpus || !data.gpus.length) {
+    el.innerHTML = '<div class="dim small">No GPU telemetry. Campaign started with --no-gpu-trace, or pynvml is missing.</div>';
+    return;
+  }
+  const anyShared = data.gpus.some(function (c) { return c.shared; });
+  el.innerHTML = '<h2>GPUs <span class="dim small">utilization is time-with-a-kernel-resident, not die occupancy; read it next to power/cap</span></h2>' +
+    (anyShared ? '<div class="dim small">Some cards run several jobs: those rows describe the CARD, not one dataset.</div>' : "") +
+    '<table>' + data.gpus.map(fmtGpu).join("") + "</table>";
+}
+
+function refreshGpus() {
+  fetch("/api/gpu").then(function (r) { return r.json(); }).then(renderGpus).catch(function () {});
+}
+
 function render(state) {
   document.getElementById("root").textContent = state.state_root;
   renderProvenance(state);
+  refreshGpus();
   document.getElementById("clock").textContent =
     "updated " + new Date().toLocaleTimeString();
   const parts = [];
@@ -689,6 +807,8 @@ class _Handler(BaseHTTPRequestHandler):
                         self.state_root, query.get("model", ""), query.get("dataset", "")
                     )
                 )
+            elif parsed.path == "/api/gpu":
+                self._send_json(read_gpu(self.state_root, query.get("model", "")))
             elif parsed.path == "/api/log":
                 lines = min(2000, max(1, int(query.get("n", "150"))))
                 self._send_json(

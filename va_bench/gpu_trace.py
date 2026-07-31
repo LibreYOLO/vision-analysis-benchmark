@@ -82,22 +82,30 @@ def summarise_values(values: Iterable[float]) -> dict[str, float] | None:
 # --------------------------------------------------------------------------
 
 
-def _gpu_to_dataset(state_dir: Path) -> dict[int, str]:
-    """Which dataset is on which card, from the status files already written."""
-    mapping: dict[int, str] = {}
+def _gpu_to_datasets(state_dir: Path) -> dict[int, list[str]]:
+    """Which datasets are on which card, from the status files already written.
+
+    A LIST, not a single name. With jobs_per_gpu > 1 several datasets share a
+    card, and an earlier version of this kept only the last writer: two of every
+    three datasets silently lost their telemetry, and the survivor's trace
+    quietly contained its cardmates' work. Measured on a real campaign: 37
+    datasets ran, 21 got a trace, and those 21 were inflated.
+    """
+    mapping: dict[int, list[str]] = {}
     if not state_dir.is_dir():
         return mapping
-    for path in state_dir.glob("*.json"):
+    for path in sorted(state_dir.glob("*.json")):
         try:
             status = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             continue
         if status.get("state") == "running" and status.get("gpu") is not None:
             try:
-                mapping[int(status["gpu"])] = str(status.get("dataset", "?"))
+                index = int(status["gpu"])
             except (TypeError, ValueError):
                 continue
-    return mapping
+            mapping.setdefault(index, []).append(str(status.get("dataset", "?")))
+    return {index: sorted(names) for index, names in mapping.items()}
 
 
 class GpuSampler:
@@ -178,18 +186,18 @@ class GpuSampler:
         }
         last_util = {i: 0 for i in range(count)}
         last_power = {i: 0 for i in range(count)}
-        mapping: dict[int, str] = {}
+        mapping: dict[int, list[str]] = {}
         last_remap = 0.0
 
         try:
             while not self.stop_event.is_set():
                 now = time.time()
                 if now - last_remap >= REMAP_SECONDS:
-                    mapping = _gpu_to_dataset(self.state_dir)
+                    mapping = _gpu_to_datasets(self.state_dir)
                     last_remap = now
                 for index, handle in enumerate(handles):
                     record, last_util[index], last_power[index] = _sample_one(
-                        N, handle, index, mapping.get(index),
+                        N, handle, index, mapping.get(index) or [],
                         last_util[index], last_power[index], now,
                     )
                     files[index].write(json.dumps(record) + "\n")
@@ -223,7 +231,7 @@ def _sample_one(
     N: Any,
     handle: Any,
     index: int,
-    dataset: str | None,
+    datasets: list[str],
     last_util: int,
     last_power: int,
     now: float,
@@ -250,7 +258,11 @@ def _sample_one(
     record = {
         "ts": round(now, 3),
         "gpu": index,
-        "dataset": dataset,
+        # ``dataset`` stays populated only when this card ran exactly one job,
+        # so a reader can never mistake a shared card's numbers for one job's.
+        "dataset": datasets[0] if len(datasets) == 1 else None,
+        "datasets": datasets,
+        "shared": len(datasets) > 1,
         "util": summarise_values(util_values),
         "power_w": summarise_values([value / 1000.0 for value in power_values]),
         "mem_used_mb": _safe(lambda: N.nvmlDeviceGetMemoryInfo(handle).used // 2**20),
@@ -299,10 +311,14 @@ def split_by_dataset(records: Iterable[dict[str, Any]]) -> dict[str, list[dict[s
     """
     grouped: dict[str, list[dict[str, Any]]] = {}
     for record in records:
-        dataset = record.get("dataset")
-        if not dataset:
-            continue
-        grouped.setdefault(str(dataset), []).append(record)
+        names = record.get("datasets")
+        if not names:
+            # v1 records, and any card running exactly one job.
+            single = record.get("dataset")
+            names = [single] if single else []
+        for name in names:
+            if name:
+                grouped.setdefault(str(name), []).append(record)
     for values in grouped.values():
         values.sort(key=lambda item: item.get("ts", 0.0))
     return grouped
@@ -348,10 +364,33 @@ def summarise_trace(
 
     covered_seconds = len(records) * poll
     gpu_hours = covered_seconds / 3600.0
+
+    # How many jobs shared the card underneath these numbers. When more than
+    # one did, every figure below describes the CARD, not this dataset, and
+    # saying so is the difference between telemetry and fiction. NVML cannot
+    # split utilization per process without accounting mode, which is normally
+    # off, so there is no honest per-job number to report here.
+    shared_buckets = sum(1 for record in records if record.get("shared"))
+    peers = sorted(
+        {
+            name
+            for record in records
+            for name in (record.get("datasets") or [])
+        }
+    )
+    if shared_buckets:
+        attribution = "shared-card"
+    elif len(gpus) == 1:
+        attribution = "exclusive-card"
+    else:
+        attribution = "multiple-cards"
+
     summary: dict[str, Any] = {
         "schema_version": SUMMARY_SCHEMA,
         "gpus": gpus,
-        "attribution": "per-gpu" if len(gpus) == 1 else "per-gpu (multiple cards seen)",
+        "attribution": attribution,
+        "shared_fraction": round(shared_buckets / len(records), 4),
+        "cardmates": peers,
         "samples": len(records),
         "poll_seconds": poll,
         "wall_seconds": round(span, 1),
@@ -470,20 +509,32 @@ def render_efficiency_report(summaries: dict[str, dict[str, Any]]) -> str:
     dollars = [row["dollars"] for row in rows if row.get("dollars") is not None]
     if dollars:
         lines.append(f"- attributed spend: ${sum(dollars):.2f}")
+    shared = [r for r in rows if r.get("attribution") == "shared-card"]
     lines += [
         "",
         "Utilization is the fraction of TIME a kernel was resident, not the",
         "fraction of the die at work. Read it next to power/cap.",
+    ]
+    if shared:
+        lines += [
+            "",
+            f"NOTE: {len(shared)} of {len(rows)} datasets shared a card with other "
+            "jobs. Their rows describe the CARD over that dataset's lifetime, not "
+            "the dataset alone, and are marked `shared`. NVML cannot attribute "
+            "utilization per process without accounting mode, so there is no "
+            "honest per-job figure to print instead.",
+        ]
+    lines += [
         "",
-        "| dataset | GPU-h | util mean | util peak | power/cap | idle | peak mem | throttled |",
-        "|---|---|---|---|---|---|---|---|",
+        "| dataset | GPU-h | util mean | util peak | power/cap | idle | peak mem | throttled | attribution |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         util = row.get("util_percent") or {}
         power_fraction = row.get("power_fraction_of_cap")
         throttled = sum((row.get("throttle_seconds") or {}).values())
         lines.append(
-            "| {dataset} | {hours:.2f} | {mean} | {peak} | {power} | {idle:.0%} | {mem} | {throttled} |".format(
+            "| {dataset} | {hours:.2f} | {mean} | {peak} | {power} | {idle:.0%} | {mem} | {throttled} | {attr} |".format(
                 dataset=row.get("dataset", "?"),
                 hours=row.get("gpu_hours") or 0.0,
                 mean=f"{util.get('mean'):.1f}%" if util.get("mean") is not None else "?",
@@ -492,6 +543,7 @@ def render_efficiency_report(summaries: dict[str, dict[str, Any]]) -> str:
                 idle=row.get("idle_fraction") or 0.0,
                 mem=f"{(row.get('mem_mb') or {}).get('peak', '?')} MB",
                 throttled=f"{throttled:.0f}s" if throttled else "no",
+                attr="shared" if row.get("attribution") == "shared-card" else "exclusive",
             )
         )
     return "\n".join(lines) + "\n"

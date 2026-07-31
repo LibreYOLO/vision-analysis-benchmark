@@ -192,6 +192,10 @@ def build_manifest(
             }
         # Status files carry the hashes the workers actually used, which beats
         # re-deriving them here: a mismatch is exactly what we want visible.
+        # They are also the truth about how much of the campaign is finished:
+        # summary.json's "completed" counts only THIS invocation, so a resumed
+        # campaign reported 0 completed while seven datasets were done.
+        states: dict[str, int] = {}
         for status_file in sorted(state.glob("*.json")):
             if status_file.stem in {"summary", "rerun", "failures", "manifest"}:
                 continue
@@ -199,6 +203,9 @@ def build_manifest(
                 status = json.loads(status_file.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 continue
+            if status.get("schema_version", "").startswith("rf100vl.train-status"):
+                key = str(status.get("state", "unknown"))
+                states[key] = states.get(key, 0) + 1
             observed = {
                 key: status[key]
                 for key in ("recipe_sha256", "versions_sha256")
@@ -206,7 +213,9 @@ def build_manifest(
             }
             if observed:
                 manifest.setdefault("observed_hashes", observed)
-                break
+        if states:
+            manifest["dataset_states"] = dict(sorted(states.items()))
+            manifest["datasets_total"] = sum(states.values())
     return manifest
 
 
@@ -226,6 +235,28 @@ def write_manifest(state_dir: str | Path, manifest: dict[str, Any]) -> Path:
     path = state_dir / MANIFEST_FILENAME
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     return path
+
+
+def default_run_id(manifest: dict[str, Any]) -> str:
+    """A run id nobody has to invent, and nobody can accidentally reuse.
+
+    ``--run-id`` was a required free-text string, and reusing one is silently
+    destructive: the second campaign's files land on the first's paths, and with
+    same-size files they are skipped rather than overwritten, so you read run A
+    under run B's name. Deriving it from the date plus the code identity makes
+    a genuine repeat collide only when the code, recipe and day are identical,
+    which is the one case where sharing a folder is correct.
+    """
+    import hashlib
+
+    parts = [
+        entry.get("commit", entry.get("version", "?"))
+        for entry in manifest.get("packages", [])
+    ]
+    parts.append((manifest.get("recipe") or {}).get("sha256", ""))
+    digest = hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:8]
+    day = str(manifest.get("created_at", ""))[:10].replace("-", "")
+    return f"{day}-{manifest.get('model_key', 'model')}-{digest}"
 
 
 def collect_artifacts(
@@ -442,14 +473,36 @@ def upload_artifacts(
                 f"cannot create or reach {repo!r}: {error}. Create the dataset "
                 "repo once by hand, then scope the token to it with write access."
             ) from error
-    existing = set(api.list_repo_files(repo, repo_type="dataset"))
+    # Compare against the remote tree by SIZE, not mere presence. Skipping any
+    # path that already exists is right for resuming an interrupted upload and
+    # wrong for everything a live campaign rewrites: summary.json, the manifest,
+    # and a dataset's metrics/results/log/status once it resumes and finishes.
+    # Presence-only skipping silently froze a dataset's status at "interrupted"
+    # forever and made a corrected manifest un-uploadable.
+    remote_size: dict[str, int] = {}
+    try:
+        for entry in api.list_repo_tree(
+            repo, repo_type="dataset", recursive=True, expand=True
+        ):
+            size = getattr(entry, "size", None)
+            if size is not None:
+                remote_size[entry.path] = int(size)
+    except Exception:
+        remote_size = {}
+    existing = set(remote_size) or set(api.list_repo_files(repo, repo_type="dataset"))
 
     operations = []
     skipped = 0
     for path, repo_path in items:
         if repo_path in existing:
-            skipped += 1
-            continue
+            known = remote_size.get(repo_path)
+            try:
+                unchanged = known is not None and known == path.stat().st_size
+            except OSError:
+                unchanged = True
+            if unchanged:
+                skipped += 1
+                continue
         operations.append(
             CommitOperationAdd(path_in_repo=repo_path, path_or_fileobj=str(path))
         )

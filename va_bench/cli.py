@@ -487,6 +487,7 @@ def cmd_sync_artifacts(args: argparse.Namespace) -> None:
 
     from .artifacts import (
         build_manifest,
+        default_run_id,
         collect_artifacts,
         upload_artifacts,
         write_manifest,
@@ -507,13 +508,19 @@ def cmd_sync_artifacts(args: argparse.Namespace) -> None:
             recipe_path = recipe_path_for_family(get_spec(args.model).family)
         except Exception:
             recipe_path = None
+    run_id = args.run_id or "PENDING"
     manifest = build_manifest(
         model_key=args.model,
-        run_id=args.run_id,
+        run_id=run_id,
         state_dir=state_dir,
         data_dir=args.data_dir or None,
         recipe_path=recipe_path,
     )
+    if not args.run_id:
+        run_id = default_run_id(manifest)
+        manifest["run_id"] = run_id
+        print(f"run-id (derived): {run_id}")
+    args.run_id = run_id
     if state_dir.is_dir():
         write_manifest(state_dir, manifest)
         commits = {
@@ -553,6 +560,28 @@ def cmd_sync_artifacts(args: argparse.Namespace) -> None:
             "For a campaign, prefer a fine-grained token scoped to "
             f"{args.repo!r} with write access only."
         )
+
+    # Refuse to write into someone else's run id. Silently landing on an
+    # existing run's paths is worse than an error: same-size files are skipped,
+    # so you would read the OLD campaign's numbers under the new run's name.
+    if not args.append:
+        try:
+            from huggingface_hub import HfApi
+
+            prefix = f"{args.model}/{run_id}/"
+            existing = [
+                name
+                for name in HfApi().list_repo_files(args.repo, repo_type="dataset")
+                if name.startswith(prefix)
+            ]
+        except Exception:
+            existing = []
+        if existing:
+            raise SystemExit(
+                f"run id {run_id!r} already has {len(existing)} files in "
+                f"{args.repo}. Pass --append to add to it deliberately, or use a "
+                "different --run-id. Reusing one silently mixes two campaigns."
+            )
 
     result = upload_artifacts(
         items, repo=args.repo, token=None, private=args.private,
@@ -1074,7 +1103,17 @@ def main(argv: list[str] | None = None) -> None:
         help="Upload campaign artifacts to a HuggingFace dataset repo (run after each dataset)",
     )
     sa.add_argument("--model", required=True, help="One model registry key")
-    sa.add_argument("--run-id", required=True, help="Campaign run id, e.g. 20260730-wave1")
+    sa.add_argument(
+        "--run-id",
+        default=None,
+        help="Campaign run id. Omit to derive one from the date plus the code "
+        "and recipe identity, which cannot silently collide with another run.",
+    )
+    sa.add_argument(
+        "--append",
+        action="store_true",
+        help="Allow writing into a run id that already exists in the repo",
+    )
     sa.add_argument("--weights-root", required=True)
     sa.add_argument("--eval-dir", default="", help="Per-dataset eval result dir")
     sa.add_argument("--submissions", default="", help="Directory of submission JSONs")

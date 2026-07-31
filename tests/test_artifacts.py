@@ -221,3 +221,46 @@ def test_manifest_records_code_identity_and_hashes(tmp_path):
     # and it must actually be uploaded, not just written
     written = write_manifest(state, manifest)
     assert written.name in STATE_FILES
+
+
+def test_default_run_id_is_stable_and_code_specific():
+    """Reusing a run id silently mixes campaigns, so it must not be hand-typed."""
+    from va_bench.artifacts import default_run_id
+
+    base = {
+        "model_key": "yolov9t",
+        "created_at": "2026-07-31T20:00:00+00:00",
+        "packages": [{"package": "libreyolo", "commit": "aaa"}, {"package": "va-bench", "commit": "bbb"}],
+        "recipe": {"sha256": "ccc"},
+    }
+    first = default_run_id(base)
+    assert first.startswith("20260731-yolov9t-")
+    assert default_run_id(dict(base)) == first          # same code -> same id
+
+    moved = dict(base, packages=[{"package": "libreyolo", "commit": "zzz"}])
+    assert default_run_id(moved) != first               # new code -> new id
+
+
+def test_manifest_counts_datasets_from_status_not_the_last_invocation(tmp_path):
+    """A resumed campaign reported 0 completed while seven were done."""
+    import json as _json
+
+    from va_bench.artifacts import build_manifest
+
+    state = tmp_path / "state"
+    state.mkdir()
+    # summary.json only knows about THIS invocation
+    (state / "summary.json").write_text(
+        _json.dumps({"completed": [], "interrupted": ["c"]}), encoding="utf-8"
+    )
+    for name, value in (("a", "done"), ("b", "done"), ("c", "pending")):
+        (state / f"{name}.json").write_text(
+            _json.dumps(
+                {"schema_version": "rf100vl.train-status.v1", "dataset": name, "state": value}
+            ),
+            encoding="utf-8",
+        )
+
+    manifest = build_manifest(model_key="yolov9t", run_id="r", state_dir=state)
+    assert manifest["dataset_states"] == {"done": 2, "pending": 1}
+    assert manifest["datasets_total"] == 3

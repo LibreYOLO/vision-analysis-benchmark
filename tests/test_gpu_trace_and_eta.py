@@ -247,3 +247,89 @@ def test_jobs_per_gpu_expands_lanes_without_touching_the_recipe() -> None:
     lanes = [gpu for gpu in gpus for _ in range(3)]
     assert lanes == ["0", "0", "0", "1", "1", "1"]
     assert sorted(set(lanes)) == gpus
+
+
+def _shared_record(ts, gpu, datasets, util_max):
+    return {
+        "ts": ts, "gpu": gpu, "datasets": datasets,
+        "dataset": datasets[0] if len(datasets) == 1 else None,
+        "shared": len(datasets) > 1,
+        "util": {"max": util_max, "p95": util_max, "mean": util_max / 2, "min": 0.0, "n": 5},
+        "power_w": {"max": 200.0, "p95": 200.0, "mean": 100.0, "min": 0.0, "n": 50},
+        "mem_used_mb": 18000, "temp_c": 65, "sm_clock_mhz": 2500, "throttle": [],
+    }
+
+
+def test_shared_card_gives_every_dataset_a_trace() -> None:
+    """Three jobs on one card must not leave two datasets with no telemetry."""
+    records = [_shared_record(float(i), 0, ["a", "b", "c"], 60) for i in range(5)]
+    grouped = split_by_dataset(records)
+    assert set(grouped) == {"a", "b", "c"}
+    assert all(len(v) == 5 for v in grouped.values())
+
+
+def test_shared_card_summary_refuses_to_claim_per_job_numbers() -> None:
+    records = [_shared_record(float(i), 0, ["a", "b", "c"], 60) for i in range(5)]
+    summary = summarise_trace(records, {"poll_seconds": 1.0})
+    assert summary["attribution"] == "shared-card"
+    assert summary["shared_fraction"] == 1.0
+    assert summary["cardmates"] == ["a", "b", "c"]
+
+    report = render_efficiency_report({"a": dict(summary, dataset="a")})
+    assert "shared" in report
+
+
+def test_exclusive_card_still_reports_per_dataset() -> None:
+    records = [_shared_record(float(i), 0, ["solo"], 60) for i in range(5)]
+    summary = summarise_trace(records, {"poll_seconds": 1.0})
+    assert summary["attribution"] == "exclusive-card"
+    assert summary["shared_fraction"] == 0.0
+
+
+def test_v1_records_without_a_datasets_field_still_split() -> None:
+    """Traces already published must keep working."""
+    legacy = [_record(float(i), 0, "old", 50) for i in range(3)]
+    assert set(split_by_dataset(legacy)) == {"old"}
+
+
+def test_dashboard_serves_gpu_telemetry(tmp_path: Path) -> None:
+    """The panel must show the telemetry, not just the campaign write it."""
+    from va_bench.rf100vl_dash import read_gpu
+
+    state = tmp_path / "yolov9t"
+    (state / "gpu").mkdir(parents=True)
+    (state / "a.json").write_text(
+        json.dumps({"schema_version": "rf100vl.train-status.v1", "dataset": "a",
+                    "state": "running", "gpu": 0, "model_key": "yolov9t"}),
+        encoding="utf-8",
+    )
+    (state / "gpu" / "meta.json").write_text(
+        json.dumps({"poll_seconds": 1.0,
+                    "gpus": {"0": {"name": "RTX 4090", "power_cap_w": 450.0,
+                                   "mem_total_mb": 24564}}}),
+        encoding="utf-8",
+    )
+    with (state / "gpu" / "gpu0.jsonl").open("w", encoding="utf-8") as handle:
+        for i in range(30):
+            handle.write(json.dumps(_shared_record(float(i), 0, ["a", "b"], 77)) + "\n")
+
+    out = read_gpu(tmp_path, "yolov9t")
+    card = out["gpus"][0]
+    assert card["gpu"] == 0
+    assert card["shared"] is True
+    assert card["datasets"] == ["a", "b"]
+    assert max(v for v in card["util_max"] if v is not None) == 77
+    assert card["power_cap_w"] == 450.0
+
+
+def test_dashboard_gpu_endpoint_is_quiet_when_no_telemetry(tmp_path: Path) -> None:
+    from va_bench.rf100vl_dash import read_gpu
+
+    state = tmp_path / "yolov9t"
+    state.mkdir(parents=True)
+    (state / "a.json").write_text(
+        json.dumps({"schema_version": "rf100vl.train-status.v1", "dataset": "a",
+                    "state": "pending", "model_key": "yolov9t"}),
+        encoding="utf-8",
+    )
+    assert read_gpu(tmp_path, "yolov9t")["gpus"] == []
