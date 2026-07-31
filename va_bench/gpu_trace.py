@@ -227,6 +227,57 @@ def _drain(N: Any, handle: Any, sample_type: Any, last_seen: int) -> tuple[list[
     return values, newest
 
 
+_LAST_DISK: dict[str, float] = {}
+
+
+def _system_sample() -> dict[str, Any]:
+    """CPU, memory and disk, so an idle GPU can be explained rather than guessed at.
+
+    A campaign measured its GPUs at 15.4% utilization and the obvious story was
+    "the dataloader is CPU-bound". Nobody had measured the CPU. An idle GPU is
+    equally consistent with dataloader workers respawning every epoch (this
+    protocol validates every epoch and the pinned build does not keep workers
+    alive), with launch-bound execution where tiny kernels finish faster than
+    Python can submit them, or with genuine CPU saturation. Those have opposite
+    fixes, so the numbers that tell them apart belong in the trace.
+
+    High CPU with an idle GPU means dataloading. LOW CPU with an idle GPU means
+    the pipeline is stalling on something else entirely, and adding workers
+    would do nothing.
+    """
+    try:
+        import psutil  # noqa: PLC0415
+    except Exception:
+        return {}
+
+    sample: dict[str, Any] = {}
+    try:
+        # Non-blocking: the value covers the interval since the previous call,
+        # which is exactly our poll period.
+        sample["cpu_percent"] = psutil.cpu_percent(interval=None)
+        load = getattr(psutil, "getloadavg", None)
+        if load is not None:
+            sample["load1"] = round(load()[0], 2)
+        memory = psutil.virtual_memory()
+        sample["ram_used_pct"] = memory.percent
+    except Exception:
+        return sample
+    try:
+        counters = psutil.disk_io_counters()
+        if counters is not None:
+            now = time.time()
+            previous_t = _LAST_DISK.get("t")
+            if previous_t and now > previous_t:
+                span = now - previous_t
+                sample["disk_read_mbs"] = round(
+                    (counters.read_bytes - _LAST_DISK.get("r", 0)) / span / 2**20, 1
+                )
+            _LAST_DISK.update({"t": now, "r": counters.read_bytes})
+    except Exception:
+        pass
+    return sample
+
+
 def _sample_one(
     N: Any,
     handle: Any,
@@ -258,6 +309,7 @@ def _sample_one(
     record = {
         "ts": round(now, 3),
         "gpu": index,
+        **_system_sample(),
         # ``dataset`` stays populated only when this card ran exactly one job,
         # so a reader can never mistake a shared card's numbers for one job's.
         "dataset": datasets[0] if len(datasets) == 1 else None,
@@ -346,6 +398,8 @@ def summarise_trace(
     power_mean = [r["power_w"]["mean"] for r in records if r.get("power_w")]
     mem = [r["mem_used_mb"] for r in records if r.get("mem_used_mb") is not None]
     temps = [r["temp_c"] for r in records if r.get("temp_c") is not None]
+    cpu = [r["cpu_percent"] for r in records if r.get("cpu_percent") is not None]
+    disk = [r["disk_read_mbs"] for r in records if r.get("disk_read_mbs") is not None]
 
     idle_buckets = sum(1 for value in util_max if value < IDLE_UTIL_PERCENT)
     throttle_counts: dict[str, int] = {}
@@ -409,6 +463,10 @@ def summarise_trace(
         },
         "mem_mb": {"peak": max(mem) if mem else None, "total": mem_total},
         "temp_c": {"peak": max(temps) if temps else None},
+        # The pair that explains an idle GPU: high CPU means dataloading,
+        # low CPU means the pipeline is stalling on something else.
+        "cpu_percent": summarise_values(cpu) if cpu else None,
+        "disk_read_mbs": summarise_values(disk) if disk else None,
         "idle_seconds": round(idle_buckets * poll, 1),
         "idle_fraction": round(idle_buckets / len(records), 4),
         "throttle_seconds": {k: round(v * poll, 1) for k, v in sorted(throttle_counts.items())},
