@@ -87,6 +87,54 @@ is your bill, plus cents of storage and bandwidth. Expect around $2.2 to
 $2.8/hr for a good 8x5090. Click RENT. The Instances tab now shows your box
 with a live status and its $/hr; it is billing from this moment.
 
+## 1b. Watch the pull for 90 seconds (free, and it catches the commonest dud)
+
+The box spends its first minutes pulling a 6.44 GB image. That pull is also
+the first honest test of the host's route to the outside world, and our
+workload is unusually dependent on that route: 6.44 GB of image, ~3 GB of pip,
+and 43 GB of dataset before a single training step. Watch it:
+
+```bash
+vastai show instances-v1 --raw    # read actual_status and status_msg
+```
+
+- **Healthy**: distinct layer IDs advancing, `Pull complete` lines
+  accumulating, `running` within about 3 to 5 minutes.
+- **Sick**: the same three to five layer IDs reappearing with
+  `Retrying in N seconds`, no net progress. Give it 90 seconds. If it is still
+  cycling the same layers, destroy it.
+
+This gate matters because it fires *before* ssh exists. A box wedged in the
+pull never reaches `running`, so section 2b's acceptance test can never run on
+it; without this gate the failure is invisible except as money.
+
+**When you replace a dud, check you are actually changing networks.** Offers
+carry a `public_ipaddr`, and distinct host accounts in distinct advertised
+cities routinely share one egress IP. Measured on 2026-07-31: offer 40871485
+("Oregon", host 572017) and offer 45260751 ("California", host 557452) both
+egress from `13.56.204.87`, and both wedged identically in the pull, for 7 and
+10 minutes, at a cost of about $0.95. A host on a different IP pulled the same
+image cleanly and was `running` in 3.4 minutes. Renting "a different host" on
+the same egress is not a retry, it is the same experiment.
+
+```bash
+# distinct-egress check before you rent the replacement
+vastai search offers 'num_gpus=8 rentable=true verified=true' -o dph_total --raw \
+  | python -c "import json,sys; [print(o['id'], o['host_id'], o.get('public_ipaddr'), o.get('geolocation')) for o in json.load(sys.stdin)[:15]]"
+```
+
+Two scores that do NOT predict this: `reliability2` (both bad boxes scored
+0.986 and 0.994; it measures uptime and contract completion, not egress) and
+advertised `inet_down` (a bandwidth claim, not a reachability one). The
+plausible mechanism is Docker Hub's rate limit, which is 100 requests per hour
+keyed on the *source IP* (`docker-ratelimit-source` in the response headers),
+so every box behind a shared NAT draws on one bucket; packet loss to the CDN
+looks the same from outside. The remedy is the same either way: change egress.
+
+Cheap inbound transfer is worth filtering on for a second reason. Staging
+43 GB costs $1.68 at $0.039/GB and $0.11 at $0.0026/GB, and the cheap-transfer
+hosts tend to be real colo rather than resold cloud.
+
 ## 2. Connect (2 minutes)
 
 Instances tab, the ">_" (Connect) button shows the exact line, shaped like:

@@ -127,6 +127,21 @@ def test_preflight_passes_on_complete_data(tmp_path: Path) -> None:
     assert "ready" in render(checks)
 
 
+def test_gpu_arch_compatibility_follows_cuda_minor_forward_rule() -> None:
+    """A 4090 (sm_89) runs an sm_86 cubin; rejecting it costs a healthy box."""
+    from va_bench.rf100vl_preflight import _runs_on
+
+    ada = (8, 9)
+    assert _runs_on(ada, ["sm_75", "sm_80", "sm_86", "sm_90", "sm_120"])
+    assert _runs_on(ada, ["sm_89"])
+    # never backwards within a major version, never across one
+    assert not _runs_on((8, 0), ["sm_86", "sm_89"])
+    assert not _runs_on(ada, ["sm_90", "sm_100", "sm_120"])
+    # PTX and arch-conditional entries are not portable cubins
+    assert not _runs_on(ada, ["compute_86"])
+    assert not _runs_on((9, 0), ["sm_90a"])
+
+
 def test_preflight_fails_on_missing_split_and_missing_dataset(tmp_path: Path) -> None:
     data_dir = _fake_data_dir(tmp_path, ["alpha", "beta"], complete=False)
     checks = run_preflight(

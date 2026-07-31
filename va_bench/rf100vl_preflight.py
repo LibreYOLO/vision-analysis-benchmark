@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -108,6 +109,34 @@ def _check_recipe(model_key: str, recipe: str | None) -> Check:
     )
 
 
+def _parse_arch(arch: str) -> tuple[int, int] | None:
+    """'sm_86' -> (8, 6). Ignores PTX ('compute_86') and suffixed ('sm_90a')."""
+    if not arch.startswith("sm_"):
+        return None
+    digits = arch[3:]
+    if not digits.isdigit():  # sm_90a and friends are arch-conditional, not portable
+        return None
+    return int(digits[:-1]), int(digits[-1])
+
+
+def _runs_on(device: tuple[int, int], arch_list: Iterable[str]) -> bool:
+    """Does any shipped cubin actually run on this device?
+
+    CUDA guarantees binary compatibility FORWARD across minor versions only:
+    a cubin built for compute capability X.y runs on X.z when z >= y, and never
+    across a major version. So an sm_86 build runs a 4090 (sm_89) fine, and
+    requiring exact membership rejects perfectly good hardware. Verified on a
+    rented 8x4090 on 2026-07-31: a torch build shipping sm_86 but not sm_89
+    trained and evaluated a full dataset without a single launch failure.
+    """
+    major, minor = device
+    for arch in arch_list:
+        parsed = _parse_arch(arch)
+        if parsed and parsed[0] == major and parsed[1] <= minor:
+            return True
+    return False
+
+
 def _check_gpu() -> Check:
     try:
         import torch
@@ -120,7 +149,7 @@ def _check_gpu() -> Check:
     for index in range(torch.cuda.device_count()):
         properties = torch.cuda.get_device_properties(index)
         sm = f"sm_{properties.major}{properties.minor}"
-        if sm not in arch_list:
+        if not _runs_on((properties.major, properties.minor), arch_list):
             return Check(
                 "gpu",
                 False,
