@@ -3,10 +3,10 @@
   "family": "yolov9",
   "source": {
     "repository": "https://github.com/LibreYOLO/libreyolo",
-    "commit": "3e3c9dffc9e4bd41a363f1dd6ca1c736e145a5d8",
-    "paths": ["tests/e2e/configs/yolo9.yaml", "libreyolo/training/config.py"],
+    "commit": "358c6d3ce62128e232ee4c3898270056228c1c2f",
+    "paths": ["libreyolo/training/config.py"],
     "license": "MIT",
-    "normalization": "RF5 family knobs under the RF100-VL fixed skeleton"
+    "normalization": "YOLO9Config family defaults (MultimediaTechLab/YOLO-aligned: mixup off, no affine rotation/shear, warmup 3, min_lr_ratio 0.01, EMA 0.9999) under the RF100-VL fixed skeleton. Replaces an earlier copy of the RF5 e2e recipe (mixup 0.5, degrees 10, shear 2, warmup 5) that matched neither upstream nor LibreYOLO's yolo9 defaults. HSV and horizontal flip stay on: they are LibreYOLO's tested yolo9 defaults and match the original WongKinYiu recipe; MMT's YAML simply omits them."
   },
   "protocol": {
     "epochs": 100,
@@ -33,18 +33,18 @@
     "weight_decay": 0.0005,
     "nesterov": true,
     "scheduler": "linear",
-    "warmup_epochs": 5,
-    "warmup_lr_start": 0.0,
+    "warmup_epochs": 3,
+    "warmup_lr_start": 0.0001,
     "no_aug_epochs": 15,
-    "min_lr_ratio": 0.05,
+    "min_lr_ratio": 0.01,
     "mosaic_prob": 1.0,
-    "mixup_prob": 0.5,
+    "mixup_prob": 0.0,
     "hsv_prob": 1.0,
     "flip_prob": 0.5,
-    "degrees": 10.0,
+    "degrees": 0.0,
     "translate": 0.1,
-    "shear": 2.0,
-    "ema_decay": 0.9998,
+    "shear": 0.0,
+    "ema_decay": 0.9999,
     "workers": 4
   }
 }
