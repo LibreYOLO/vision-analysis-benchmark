@@ -2,8 +2,9 @@
 
 You, a browser, and two terminals. No agents anywhere in this document: every
 command is typed and every check is read by a person. Expected totals for a
-yolov9t campaign on one 8x RTX 5090 on-demand box: about 5 to 7 hours wall
-clock, about 13 to 18 dollars.
+yolov9t campaign on one 8x RTX 5090 on-demand box depend heavily on packing
+and the LibreYOLO stack; treat any number under ~8 hours as optimistic until
+a shakedown on the current recipe re-measures.
 
 The mental model in five lines: you rent 8 GPUs by the hour; you put the code
 and the dataset on them; ONE command fine-tunes one small model per dataset
@@ -36,10 +37,12 @@ is). Delete `rehearsal-ckpt` afterwards. That is the entire skill set.
 
 Go to https://cloud.vast.ai (log in), Search tab:
 
-- Filters: GPU = RTX 5090, GPUs = 8x, Verified, Disk >= 300 GB.
+- Filters: GPU = RTX 5090, GPUs = 8x, Verified, Disk >= 300 GB free on the
+  machine (so a 120–250 GB rental fits), prefer high core count and clock.
 - Instance configuration, image:
   **`vastai/pytorch:2.11.0-cu128-cuda-12.9-mini-py312-2026-06-15`**
-  Disk slider: 300 GB.
+  Disk slider: **120 GB** without image cache, **~250 GB** with recipe
+  `cache: "disk"` (resized `.npy` sidecars). Disk bills on allocated GB.
 
   This exact tag, for two reasons learned the expensive way. It is one of
   Vast's OWN images, so key injection and sshd take their well-travelled
@@ -160,8 +163,8 @@ It works from PowerShell or Git Bash. First contact, look around:
 
 ```bash
 nvidia-smi                 # expect 8x RTX 5090, 32GB each, idle near 0%
-df -h /                    # expect 300G, mostly free
-python -c "import torch; print(torch.__version__, torch.cuda.get_arch_list())"
+df -h /                    # expect your allocated disk, mostly free
+/venv/main/bin/python -c "import torch; print(torch.__version__, torch.cuda.get_arch_list())"
                            # expect 2.11.0+cu128 and sm_120 in the list
 ```
 
@@ -194,7 +197,9 @@ machines: an offer that would not schedule, a broken NVIDIA container runtime
 huggingface.co (one IPv6-only with no IPv6 egress, one blocked outright while
 PyPI and GitHub worked), a host that wrote `authorized_keys` with bad modes,
 and one that could not pull from Docker Hub at all. None of these are
-detectable from the offer card. Budget roughly a dollar for the search.
+detectable from the offer card. Destroy duds immediately: `loading` is
+essentially unbilled (meter starts at `running`), so a wedged pull costs
+cents, not dollars. The real cost is attention.
 
 The most dangerous of those is the network one, because `snapshot_download`
 does not error: it hangs silently, forever, while the meter runs.
@@ -206,42 +211,47 @@ P=/venv/main/bin/python                # the venv interpreter, see section 1
 apt-get update -qq && apt-get install -y -qq git tmux rsync \
   libgl1 libglib2.0-0 libxcb1 libxrender1 libxext6 libsm6
 
-$P -m pip install -q \
-  "libreyolo[rfdetr] @ git+https://github.com/LibreYOLO/libreyolo@19b9321ab11450f9d9569ca059e2346267a51aca"
+# Pin a LibreYOLO commit that has post-resize cache + graphed validation
+# (dev after the perf/graphed-val-forward merge). --force-reinstall --no-deps
+# is required: `pip install --upgrade` on a git URL silently no-ops when the
+# version string is unchanged and still reports success.
+$P -m pip install -q --force-reinstall --no-deps \
+  "libreyolo @ git+https://github.com/LibreYOLO/libreyolo@dev"
 $P -m pip install -q \
   "git+https://github.com/LibreYOLO/vision-analysis-benchmark.git@rf100vl-harness" \
   pycocotools huggingface_hub psutil pyyaml nvidia-ml-py
 
 # Prove the install AND that nothing downgraded torch out of cu128.
-$P -c "import torch, libreyolo; print(torch.__version__, 'sm120', 'sm_120' in torch.cuda.get_arch_list(), 'libreyolo', libreyolo.__version__)"
+# Also prove the recipe fields exist on this build.
+$P -c "import torch, libreyolo; from dataclasses import fields; from libreyolo.training.config import TrainConfig; names={f.name for f in fields(TrainConfig)}; print(torch.__version__, 'sm120', 'sm_120' in torch.cuda.get_arch_list(), 'libreyolo', libreyolo.__version__, 'cuda_graph' in names, 'cache' in names)"
 $P -c "import pynvml; pynvml.nvmlInit(); print('nvml OK,', pynvml.nvmlDeviceGetCount(), 'devices')"
 /venv/main/bin/va-bench --help | head -3
 ```
 
-Expect `2.11.0+cu128 sm120 True libreyolo 1.4.0` and `nvml OK, 8 devices`.
+Expect `2.11.0+cu128 sm120 True ... True True` (cuda_graph and cache both
+present) and `nvml OK, 8 devices`.
+
+**Before you rent anything:** save the Vast TOTP seed to
+`~/.config/vastai/vast_totp_seed` (see the vast-launch skill). A 2FA session
+expiring mid-campaign once forced stopping a billing box through a path that
+could not be verified.
 
 `nvidia-ml-py` is what makes the per-GPU telemetry work. Leave it out and the
 campaign still runs, but it prints one line, `pynvml unavailable, no GPU
-telemetry`, and then records nothing about utilisation or power. That is easy
-to miss in a wall of preflight PASSes, and it costs you the answer to the
-question the run was partly meant to settle: whether the GPUs were actually
-busy. Install `nvidia-ml-py`, not `pynvml`; the latter is a deprecated shim
-that works but warns on every process start. If torch lost `+cu128`, a
-dependency pulled a different wheel: reinstall it from the cu128 index before
-going further, because training would silently fall back or fail to launch
-kernels. (`PIP_BREAK_SYSTEM_PACKAGES=1` is only needed on plain Debian-based
-images, not on the Vast image, which installs into its own venv.)
-
-The libreyolo commit above is the validated campaign pin. Bump it
-deliberately after testing, never casually.
+telemetry`, and then records nothing about utilisation or power. Install
+`nvidia-ml-py`, not `pynvml`. If torch lost `+cu128`, reinstall from the
+cu128 index before going further.
 
 ## 4. Stage the dataset (~10-15 minutes at datacenter speed)
 
 ```bash
 cd /root
+# Prefer max_workers=32 and HF_TOKEN (authenticated rate limit). Do the
+# download and the extract as SEPARATE commands so Ctrl-C cannot leave the
+# extract loop chewing a half-finished directory.
 python -c "from huggingface_hub import snapshot_download; \
   snapshot_download('LibreYOLO/rf100-vl', repo_type='dataset', \
-                    local_dir='rf100-vl', max_workers=8)"
+                    local_dir='rf100-vl', max_workers=32)"
 cd rf100-vl && for f in *.tar; do tar xf "$f" && rm "$f"; done && cd /root
 rm -f ./-grccs.tar                     # see below
 ls rf100-vl | wc -l                    # expect ~104 (100 datasets + metadata)
@@ -306,28 +316,34 @@ Still inside tmux:
 ```bash
 va-bench rf100vl-campaign --model yolov9t \
   --data-dir /root/rf100-vl --weights-root /root/rf100vl-weights \
-  --gpus 0,1,2,3,4,5,6,7
+  --gpus 0,1,2,3,4,5,6,7 --jobs-per-gpu 3
 ```
 
-Detach (Ctrl-b d). If ANYTHING dies, up to and including the box, re-running
-this exact command resumes: finished datasets are skipped, the interrupted
-one restarts from its last epoch checkpoint.
+`--jobs-per-gpu` is the biggest throughput lever (VRAM/lane and CPU
+headroom set it; re-measure after stack changes). The campaign prints a
+Monitor line and a Profile line — use `libreyolo profile phases` on a slow
+dataset before inventing theories.
 
-The napkin math you should carry in your head: 100 datasets / 8 GPUs is 12 or
-13 per GPU, at roughly 20 to 40 minutes each, so 4 to 6 hours; times the $/hr
-on your instance card is the bill.
+Detach (Ctrl-b d). If ANYTHING dies, up to and including the box, re-running
+this *identical* command resumes only if the recipe hash is unchanged:
+finished datasets are skipped, interrupted ones continue from `last.pt`.
+Changing the recipe (e.g. toggling `cuda_graph` / `cache`) forces a fresh
+campaign.
+
+Early ETAs are garbage: epoch 1 is 1.3–2×+ a steady epoch and datasets span
+~40× in size. Do not make money decisions off the first hour.
 
 ## 8. Watch it (pick any or all)
 
 **Dashboard in your browser.** On the box (tmux window 2: Ctrl-b c):
 
 ```bash
-va-bench rf100vl-dash --state-root /root/rf100vl-weights/.state
+va-bench rf100vl-dash --state-root /root/rf100vl-weights/.state/yolov9t \
+  --data-dir /root/rf100-vl
 ```
 
-On your laptop, forward the port through SSH (this is the answer to "can
-vast forward that port": you pull it through the ssh connection; nothing is
-ever exposed publicly):
+Pass `--data-dir` or queued datasets show no image counts and the ETA is
+size-blind. On your laptop, forward the port through SSH:
 
 ```bash
 ssh -p <PORT> -L 8877:127.0.0.1:8877 root@<HOST-IP> -N
@@ -336,10 +352,12 @@ ssh -p <PORT> -L 8877:127.0.0.1:8877 root@<HOST-IP> -N
 Open http://127.0.0.1:8877. Per-GPU lanes, the 100-dataset grid, click any
 dataset for its live loss and mAP curves and log tail.
 
-**GPUs, raw.** In another tmux window: `watch -n 5 nvidia-smi`. Healthy
-training shows every GPU cycling roughly 60 to 100 percent utilization and
-roughly 200 to 400 W. One GPU at 0 percent for over 10 minutes while the
-dashboard shows it owning a running dataset means something is wrong.
+**GPUs, raw.** In another tmux window: `watch -n 5 nvidia-smi`. This workload
+is launch/host-bound: **healthy often looks like 9–35% util and ~170 W of
+575 W** with everything fine (measured pre-cache; graphed+cached stacks
+should read higher — re-baseline). Do not "fix" low util by restarting.
+`nvidia-smi` describes the CARD, not one lane. A GPU stuck at 0% for over
+10 minutes while the dashboard shows a running dataset on it is a real fault.
 
 **Money.** The Instances tab card shows $/hr; the Billing page shows actual
 charges accruing. Sanity-check it against hours-elapsed times the card price
@@ -393,15 +411,19 @@ Instances tab is empty. That is the moment billing ends.
 
 ## Aborting at any point
 
-**Stop the run, keep the box:** Ctrl-C in the tmux window. The orchestrator
-terminates the trainers, marks the datasets that were mid-flight as pending,
-and exits. Re-running the identical command resumes: finished datasets are
-skipped, interrupted ones continue from their last epoch checkpoint.
+**Stop the run, keep the box:** graceful only. `tmux send-keys -t bench C-c`
+(or Ctrl-C in the campaign window), then **wait for the orchestrator process
+to exit** before `vastai stop instance`. A Ctrl-C that lands mid-checkpoint
+write can corrupt `last.pt` and poison resume for that dataset (observed on
+`mahjong`). Re-running the identical command resumes only under the same
+recipe hash.
 
-**Stop everything:** destroy the box. Always safe, always ends the spend. You
-lose whatever was not pulled or synced (at worst, partial training that would
-re-run next time); you keep everything you copied off. There is no state
-anywhere except that box, your laptop, and whatever you pushed to HF.
+**Stop vs destroy:** a stopped box bills disk only, but restart needs those
+exact GPUs still free. The cheaper the box was, the likelier someone takes
+them. Decide from disk $/day, re-stage cost (~35 min), and whether banked
+checkpoints are still usable.
+
+**Stop everything:** destroy the box. Always ends the spend. Pull/sync first.
 
 ## Answering questions about the benchmark (the honest cheat sheet)
 

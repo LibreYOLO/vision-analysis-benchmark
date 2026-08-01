@@ -18,7 +18,8 @@
     "ema": true,
     "seed": 0,
     "precision": "fp32",
-    "cuda_graph": true
+    "cuda_graph": true,
+    "cache": "disk"
   },
   "sizes": {
     "t": {"imgsz": 640, "lr0": 0.005},

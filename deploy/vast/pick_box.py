@@ -27,9 +27,11 @@ Every gate below comes from something measured rather than assumed:
 
 * **CPU per lane.** At one training per GPU the GPUs sat at 15.4% utilization
   while power reached only 22% of cap: this workload is dataloader-bound, not
-  GPU-bound. Cores per training lane therefore predicts real throughput better
-  than TFLOPs, and a box that packs deeper than its cores allow will not
-  deliver its nominal capacity.
+  GPU-bound. Measured later with 3 lanes/GPU: 46 ms GPU vs 507 ms CPU per
+  step and 8 cores/lane still ~94% CPU-saturated. Cores per training lane
+  therefore predict real throughput better than TFLOPs, and a box that packs
+  deeper than its cores allow will not deliver its nominal capacity. Size
+  for epoch 1 (cache fill) as well as steady state.
 
 * **Shared egress.** The failure that cost the most money was two offers under
   DIFFERENT host accounts, in DIFFERENT advertised cities, sharing one egress
@@ -56,7 +58,10 @@ VRAM_EXTRA_JOB_GB = 5.65
 VRAM_USABLE_FRACTION = 0.93
 LONGEST_DATASET_EPOCH_SECONDS = 9.07 + 0.0139 * 8791  # 100 epochs of the worst one
 PACKING_MULTIPLIER = {1: 1.0, 2: 1.6, 3: 2.0}  # 3 is measured; 2 is interpolated
-MIN_CORES_PER_LANE = 3.0
+# Was 3.0; measured campaigns at 8 cores/lane were still ~94% CPU-saturated
+# before the post-resize image cache. Keep the floor high until a shakedown
+# on the current stack re-measures steady-state need.
+MIN_CORES_PER_LANE = 8.0
 
 # Egress IPs that have already cost us money. The shared-host-account heuristic
 # does not always catch these: an IP can carry a single host account today and

@@ -474,7 +474,15 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
     )
     print(
         f"Monitor with: va-bench rf100vl-dash --state-root {state_root} "
-        f"--data-dir {args.data_dir}\n"
+        f"--data-dir {args.data_dir}"
+    )
+    # Profile hint next to the monitor line on purpose. An hour of py-spy /
+    # ps / log forensics once produced a confidently wrong answer that
+    # `libreyolo profile run` corrected in 52 seconds; the campaign should
+    # surface the right tool before anyone invents a worse one.
+    print(
+        "Profile a slow dataset with: libreyolo profile phases "
+        "(or `libreyolo profile run`) on one representative data yaml\n"
     )
 
     # Read-only NVML sampling alongside the campaign. It can only add an

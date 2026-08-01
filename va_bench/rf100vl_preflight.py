@@ -47,12 +47,18 @@ def _check_libreyolo() -> Check:
         capabilities = require_libreyolo_protocol_capabilities()
     except Exception as exc:
         return Check("libreyolo", False, str(exc))
+    extras = []
+    if capabilities.get("cuda_graph"):
+        extras.append("cuda_graph")
+    if capabilities.get("cache"):
+        extras.append("cache")
+    extra = (", " + "+".join(extras)) if extras else ", (no cuda_graph/cache)"
     return Check(
         "libreyolo",
         True,
         f"version {capabilities.get('version')}, eval_max_det "
         f"{capabilities.get('eval_max_det')}, amp_dtype "
-        f"{capabilities.get('amp_dtype')}",
+        f"{capabilities.get('amp_dtype')}{extra}",
     )
 
 

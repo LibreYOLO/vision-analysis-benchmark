@@ -120,11 +120,12 @@ def require_libreyolo_protocol_capabilities() -> dict[str, Any]:
         "prediction_max_det": getattr(train_config, "max_det", None),
         "eval_max_det": getattr(train_config, "eval_max_det", None),
         "default_eval_max_det": default_validator._coco_max_det(),
-        # Reported, never required. A build without cuda_graph runs the
-        # protocol correctly, just slower, so this must not gate a campaign.
-        # It is recorded so that a run which ASKED for graphs on a build that
+        # Reported, never required. A build without cuda_graph / cache runs
+        # the protocol correctly, just slower, so this must not gate a
+        # campaign. Recorded so a run which ASKED for them on a build that
         # cannot provide them is visible afterwards rather than silently eager.
         "cuda_graph": "cuda_graph" in train_fields,
+        "cache": "cache" in train_fields,
     }
 
 
@@ -431,11 +432,30 @@ def build_train_kwargs(
     # prints it, so a run that fell back is visible afterwards.
     if bool(protocol.get("cuda_graph", False)) and _libreyolo_supports_cuda_graph():
         kwargs["cuda_graph"] = True
+    # Image cache (False / "ram" / "disk"). Same EXECUTION-detail contract as
+    # cuda_graph: covered by the recipe hash, bit-identical reads when the
+    # installed LibreYOLO supports the post-resize cache point, and an eager
+    # (no-cache) fallback if the build is older. "disk" is the campaign
+    # default for multi-worker boxes; allocate ~250 GB when it is on.
+    cache = protocol.get("cache", False)
+    if cache and _libreyolo_supports_cache():
+        kwargs["cache"] = cache
     if spec.family == "ec":
         kwargs["allow_experimental"] = True
         kwargs["optimizer"] = "adamw"
         kwargs["mosaic_prob"] = 0.0
     return kwargs
+
+
+@functools.lru_cache(maxsize=1)
+def _libreyolo_train_field_names() -> frozenset[str]:
+    from dataclasses import fields
+
+    try:
+        train_config_cls, _, _ = _load_libreyolo_protocol_types()
+        return frozenset(field.name for field in fields(train_config_cls))
+    except Exception:
+        return frozenset()
 
 
 @functools.lru_cache(maxsize=1)
@@ -445,13 +465,19 @@ def _libreyolo_supports_cuda_graph() -> bool:
     Cached: this is asked once per dataset and the answer cannot change inside
     a run. Absence is not an error by itself, only when a recipe asks for it.
     """
-    from dataclasses import fields
+    return "cuda_graph" in _libreyolo_train_field_names()
 
-    try:
-        train_config_cls, _, _ = _load_libreyolo_protocol_types()
-        return "cuda_graph" in {field.name for field in fields(train_config_cls)}
-    except Exception:
-        return False
+
+@functools.lru_cache(maxsize=1)
+def _libreyolo_supports_cache() -> bool:
+    """Does the installed LibreYOLO expose TrainConfig.cache?
+
+    Presence alone is enough for the harness: older builds that had a
+    decode-only cache still accept the flag; the post-resize semantics that
+    make caching viable on RF100-VL require a LibreYOLO that ships that
+    change (dev after the perf/graphed-val-forward merge).
+    """
+    return "cache" in _libreyolo_train_field_names()
 
 
 def _run_signature(
