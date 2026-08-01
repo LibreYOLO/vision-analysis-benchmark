@@ -210,14 +210,23 @@ $P -m pip install -q \
   "libreyolo[rfdetr] @ git+https://github.com/LibreYOLO/libreyolo@19b9321ab11450f9d9569ca059e2346267a51aca"
 $P -m pip install -q \
   "git+https://github.com/LibreYOLO/vision-analysis-benchmark.git@rf100vl-harness" \
-  pycocotools huggingface_hub psutil pyyaml
+  pycocotools huggingface_hub psutil pyyaml nvidia-ml-py
 
 # Prove the install AND that nothing downgraded torch out of cu128.
 $P -c "import torch, libreyolo; print(torch.__version__, 'sm120', 'sm_120' in torch.cuda.get_arch_list(), 'libreyolo', libreyolo.__version__)"
+$P -c "import pynvml; pynvml.nvmlInit(); print('nvml OK,', pynvml.nvmlDeviceGetCount(), 'devices')"
 /venv/main/bin/va-bench --help | head -3
 ```
 
-Expect `2.11.0+cu128 sm120 True libreyolo 1.4.0`. If torch lost `+cu128`, a
+Expect `2.11.0+cu128 sm120 True libreyolo 1.4.0` and `nvml OK, 8 devices`.
+
+`nvidia-ml-py` is what makes the per-GPU telemetry work. Leave it out and the
+campaign still runs, but it prints one line, `pynvml unavailable, no GPU
+telemetry`, and then records nothing about utilisation or power. That is easy
+to miss in a wall of preflight PASSes, and it costs you the answer to the
+question the run was partly meant to settle: whether the GPUs were actually
+busy. Install `nvidia-ml-py`, not `pynvml`; the latter is a deprecated shim
+that works but warns on every process start. If torch lost `+cu128`, a
 dependency pulled a different wheel: reinstall it from the cu128 index before
 going further, because training would silently fall back or fail to launch
 kernels. (`PIP_BREAK_SYSTEM_PACKAGES=1` is only needed on plain Debian-based

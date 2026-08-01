@@ -22,7 +22,41 @@ fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
 
+# Pull the verdict line out of a captured report.
+#
+# The probes below capture stderr as well as stdout, deliberately, so that an
+# import traceback is visible rather than swallowed. That means anything else
+# python writes to stderr is also captured, and a DeprecationWarning from an
+# unrelated dependency lands AHEAD of the verdict. Matching the whole capture
+# against `OK*` therefore fails on a completely healthy box: observed on
+# 2026-08-01, where a `pynvml` FutureWarning emitted by torch made an 8x5090
+# that was mid-campaign report "REJECT: destroy this box".
+#
+# A false REJECT is the expensive direction to be wrong in, since it throws
+# away a good host and sends you back into the rental lottery. So scan for the
+# verdict line instead of assuming it comes first.
+verdict_of() { printf '%s\n' "$1" | grep -E '^(OK|FAIL)' | tail -1; }
+
+# Find an interpreter before using one. Vast's own images keep their
+# environment in a venv that a non-interactive `ssh host command` does not have
+# on PATH, so a bare `python` is not found and every torch check below reports
+# FAIL on a perfectly healthy box. That is the worst possible direction for an
+# acceptance test to be wrong in: it rejects good hosts and sends you back into
+# the rental lottery. Prefer the venv interpreter, then the usual names, and
+# allow an override for images that put it somewhere else entirely.
+PY_BIN=""
+for _cand in "${PYTHON:-}" /venv/main/bin/python /opt/conda/bin/python python3 python; do
+  [ -n "$_cand" ] || continue
+  if command -v "$_cand" >/dev/null 2>&1; then PY_BIN="$_cand"; break; fi
+done
+
 echo "=== host acceptance test ==="
+
+if [ -z "$PY_BIN" ]; then
+  fail "python: no interpreter found (tried \$PYTHON, /venv/main/bin/python, /opt/conda/bin/python, python3, python)"
+else
+  pass "python: $PY_BIN"
+fi
 
 # 1. GPUs visible to the driver.
 if gpus=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null) \
@@ -34,7 +68,7 @@ fi
 
 # 2. torch actually has kernels for them. A cu124 image on a Blackwell card
 #    imports fine and then cannot launch a single kernel.
-torch_report=$(python - <<'PY' 2>&1
+torch_report=$("${PY_BIN:-python}" - <<'PY' 2>&1
 try:
     import torch
 except Exception as exc:  # noqa: BLE001 - report anything, do not raise
@@ -56,13 +90,15 @@ else:
             print(f"OK torch {torch.__version__}, {torch.cuda.device_count()} device(s)")
 PY
 )
-case "$torch_report" in
-  OK*) pass "torch: ${torch_report#OK }" ;;
-  *)   fail "torch: ${torch_report#FAIL }" ;;
+torch_verdict=$(verdict_of "$torch_report")
+case "$torch_verdict" in
+  OK*)   pass "torch: ${torch_verdict#OK }" ;;
+  FAIL*) fail "torch: ${torch_verdict#FAIL }" ;;
+  *)     fail "torch: no verdict from the probe: $(printf '%s' "$torch_report" | tr '\n' ' ' | cut -c1-200)" ;;
 esac
 
 # 3. Real compute, not just enumeration.
-matmul=$(python - <<'PY' 2>&1
+matmul=$("${PY_BIN:-python}" - <<'PY' 2>&1
 try:
     import torch
     x = torch.randn(2048, 2048, device="cuda")
@@ -72,9 +108,11 @@ except Exception as exc:  # noqa: BLE001
     print(f"FAIL {type(exc).__name__}: {exc}")
 PY
 )
-case "$matmul" in
-  OK*) pass "compute: a real matmul ran on the GPU" ;;
-  *)   fail "compute: ${matmul#FAIL }" ;;
+matmul_verdict=$(verdict_of "$matmul")
+case "$matmul_verdict" in
+  OK*)   pass "compute: a real matmul ran on the GPU" ;;
+  FAIL*) fail "compute: ${matmul_verdict#FAIL }" ;;
+  *)     fail "compute: no verdict from the probe: $(printf '%s' "$matmul" | tr '\n' ' ' | cut -c1-200)" ;;
 esac
 
 # 4. The artifact hub, which is where the dataset comes from and where the

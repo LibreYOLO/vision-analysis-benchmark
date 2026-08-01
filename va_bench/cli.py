@@ -473,8 +473,7 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
         Path(args.weights_root) / ".state" / args.model
     )
     print(
-        f"Monitor with: va-bench rf100vl-dash --state-root {state_root} "
-        f"--data-dir {args.data_dir}\n"
+        f"Monitor with: va-bench rf100vl-dash --state-root {state_root}\n"
     )
 
     # Read-only NVML sampling alongside the campaign. It can only add an

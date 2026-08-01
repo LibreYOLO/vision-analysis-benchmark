@@ -40,6 +40,13 @@ dev = [
 ]
 rf100vl = [
     "rf100vl>=1.1.2",
+    # NVML, for the per-GPU telemetry the campaign records. Without it the
+    # sampler degrades to a one-line warning and a run that was meant to answer
+    # "were the GPUs actually busy?" silently answers nothing. This is
+    # nvidia-ml-py, NVIDIA's own package, which is what provides the `pynvml`
+    # module; the separate `pynvml` distribution is a deprecated shim that
+    # imports fine but warns on every start.
+    "nvidia-ml-py>=12.0",
 ]
 
 [project.scripts]
