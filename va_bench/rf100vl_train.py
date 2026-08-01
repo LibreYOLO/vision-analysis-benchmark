@@ -522,6 +522,24 @@ def _is_cuda_oom(exc: BaseException) -> bool:
     return "cuda" in message and ("out of memory" in message or "memory allocation" in message)
 
 
+def _is_capture_race(exc: BaseException) -> bool:
+    """A CUDA-graph capture invalidated by a concurrent allocation, not a real failure.
+
+    Observed on the first yolov9t campaign (2026-08-01, 2 of 8 failures): the
+    DataLoader's pin-memory thread calls cudaHostAlloc while the trainer is
+    capturing a CUDA graph, and any synchronous allocation during capture
+    raises cudaErrorStreamCaptureUnsupported — surfaced by torch as
+    "AcceleratorError ... in pin memory thread". Training eagerly instead is
+    bit-identical on loss (measured on yolov9t/s), so this failure class is
+    recoverable by retrying once with cuda_graph disabled and the deviation
+    recorded, rather than losing the dataset.
+    """
+    message = f"{type(exc).__name__}: {exc}".lower()
+    if "streamcapture" in message:  # cudaErrorStreamCapture{Unsupported,Invalidated,...}
+        return True
+    return "acceleratorerror" in message and "pin memory" in message
+
+
 def _atomic_copy(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
@@ -565,6 +583,15 @@ def run_dataset_worker(config_path: str | Path) -> int:
             resume=resume,
             smoke_epochs=config.get("smoke_epochs"),
         )
+        # Retry after a capture race runs eager. Graph replay is an execution
+        # detail (bit-identical loss, not part of the run signature), so this
+        # changes how long the run takes and nothing about what it produces;
+        # the deviation is still recorded in stats below so it is visible.
+        cuda_graph_disabled = bool(config.get("disable_cuda_graph")) and bool(
+            train_kwargs.get("cuda_graph")
+        )
+        if cuda_graph_disabled:
+            train_kwargs["cuda_graph"] = False
 
         checkpoint = run_dir / "weights" / "last.pt"
         model_path = str(checkpoint) if resume else spec.weight_file
@@ -614,6 +641,7 @@ def run_dataset_worker(config_path: str | Path) -> int:
             "run_signature": config["run_signature"],
             "run_variant": batch_plan["run_variant"],
             "restart_reason": config.get("restart_reason"),
+            "cuda_graph_disabled": cuda_graph_disabled,
             "batch": batch_plan,
             "data": {
                 **dataset_facts,
@@ -645,7 +673,12 @@ def run_dataset_worker(config_path: str | Path) -> int:
         )
         return 0
     except BaseException as exc:
-        state = "oom" if _is_cuda_oom(exc) else "failed"
+        if _is_cuda_oom(exc):
+            state = "oom"
+        elif _is_capture_race(exc):
+            state = "capture_race"
+        else:
+            state = "failed"
         atomic_write_json(
             result_path,
             {
@@ -658,7 +691,9 @@ def run_dataset_worker(config_path: str | Path) -> int:
                 "wall_seconds": time.perf_counter() - start_time,
             },
         )
-        return 86 if state == "oom" else 1
+        if state == "oom":
+            return 86
+        return 87 if state == "capture_race" else 1
 
 
 def _status_path(state_root: Path, dataset_name: str) -> Path:
@@ -1088,6 +1123,7 @@ def _run_attempt(
     force_fallback: bool,
     restart_reason: str | None,
     children: _ChildProcesses | None = None,
+    disable_cuda_graph: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], Path]:
     spec = get_spec(model_key)
     dataset_dir = data_dir / dataset_name
@@ -1170,6 +1206,7 @@ def _run_attempt(
         "resume": resume,
         "smoke_epochs": smoke_epochs,
         "restart_reason": restart_reason,
+        "disable_cuda_graph": disable_cuda_graph,
     }
     worker_config_path = _worker_config_path(state_root, dataset_name)
     atomic_write_json(worker_config_path, worker_config)
@@ -1191,6 +1228,7 @@ def _run_attempt(
         "worker_result_path": str(worker_result_path),
         "started_at": utc_now(),
         "restart_reason": restart_reason,
+        "cuda_graph_disabled": disable_cuda_graph,
     }
     atomic_write_json(status_path, status)
 
@@ -1365,13 +1403,14 @@ def orchestrate_training(
     completed: list[str] = []
     failed: list[str] = []
     interrupted: list[str] = []
+    oom_solo: list[str] = []
     outcome_lock = threading.Lock()
     children = _ChildProcesses()
 
-    def consume(gpu: str) -> None:
+    def consume(gpu: str, work_queue: "queue.Queue[str]", solo: bool = False) -> None:
         while not children.stopping.is_set():
             try:
-                name = work.get_nowait()
+                name = work_queue.get_nowait()
             except queue.Empty:
                 return
             try:
@@ -1447,6 +1486,79 @@ def orchestrate_training(
                         force_fallback=True,
                         restart_reason="mid_run_cuda_oom",
                     )
+
+                if worker_result.get("state") == "capture_race" and not status.get(
+                    "cuda_graph_disabled"
+                ):
+                    # A CUDA-graph capture invalidated by the dataloader's
+                    # pin-memory thread. Not a property of the dataset: retry
+                    # once, eagerly, in the same lane. Graph replay is not in
+                    # the run signature (bit-identical loss), so the retry
+                    # resumes from the same last.pt and the eager fallback is
+                    # recorded in status and stats rather than silent.
+                    print(
+                        f"[{utc_now()}] {name}: CUDA-graph capture race; "
+                        "retrying once with cuda_graph disabled",
+                        flush=True,
+                    )
+                    race_pending = dict(status)
+                    race_pending.update(
+                        {
+                            "state": "pending",
+                            "restart_reason": "cuda_graph_capture_race",
+                            "updated_at": utc_now(),
+                        }
+                    )
+                    atomic_write_json(status_path, race_pending)
+                    worker_result, status, status_path = _run_attempt(
+                        children=children,
+                        dataset_name=name,
+                        model_key=model_key,
+                        data_dir=data_dir,
+                        weights_root=weights_root,
+                        runs_root=runs_root,
+                        state_root=state_root,
+                        recipe_path=recipe_path,
+                        recipe=recipe,
+                        version_lock=version_lock,
+                        versions_sha256=versions_sha256,
+                        gpu=gpu,
+                        timeout_seconds=timeout_hours * 3600,
+                        smoke_epochs=smoke_epochs,
+                        force_fallback=status.get("run_variant") == "fallback",
+                        restart_reason="cuda_graph_capture_race",
+                        disable_cuda_graph=True,
+                    )
+
+                if worker_result.get("state") == "oom" and not solo:
+                    # Every OOM on the first yolov9t campaign happened while
+                    # two lanes shared a card; the dense-dataset loss (IoU
+                    # matrix ~ targets x predictions) needs the whole card,
+                    # not a smaller batch. Park the dataset for the solo
+                    # drain phase after the packed queue empties: it reruns
+                    # with a full GPU under the same signature (resuming from
+                    # its epoch-boundary last.pt), so the protocol is
+                    # untouched. Only an OOM with the card to itself is
+                    # final.
+                    print(
+                        f"[{utc_now()}] {name}: CUDA OOM in a packed lane; "
+                        "parked for the solo-GPU drain phase",
+                        flush=True,
+                    )
+                    solo_pending = dict(status)
+                    solo_pending.update(
+                        {
+                            "state": "pending",
+                            "restart_reason": "solo_gpu_after_oom",
+                            "updated_at": utc_now(),
+                        }
+                    )
+                    solo_pending.pop("pid", None)
+                    solo_pending.pop("pid_create_time", None)
+                    atomic_write_json(status_path, solo_pending)
+                    with outcome_lock:
+                        oom_solo.append(name)
+                    continue
 
                 if worker_result.get("state") == "done":
                     final_status = dict(status)
@@ -1528,7 +1640,7 @@ def orchestrate_training(
                 with outcome_lock:
                     failed.append(name)
             finally:
-                work.task_done()
+                work_queue.task_done()
 
     stop_heartbeat = threading.Event()
 
@@ -1554,9 +1666,30 @@ def orchestrate_training(
     executor = ThreadPoolExecutor(max_workers=len(lanes))
     futures: list[Any] = []
     try:
-        futures = [executor.submit(consume, gpu) for gpu in lanes]
+        futures = [executor.submit(consume, gpu, work) for gpu in lanes]
         for future in futures:
             future.result()
+        # Solo drain phase: every dataset that OOM'd in a packed lane gets a
+        # card to itself, one lane per GPU, after the packed queue empties.
+        # Same signature, same recipe, resumes from its own last.pt — this is
+        # the automated version of "re-run the cleanup wave at 1 lane/GPU".
+        if oom_solo and not children.stopping.is_set():
+            print(
+                f"[{utc_now()}] packed queue drained; retrying "
+                f"{len(oom_solo)} OOM dataset(s) with a full GPU each: "
+                f"{', '.join(sorted(oom_solo))}",
+                flush=True,
+            )
+            solo_work: queue.Queue[str] = queue.Queue()
+            for name in sorted(oom_solo):
+                solo_work.put(name)
+            solo_futures = [
+                executor.submit(consume, gpu, solo_work, True)
+                for gpu in dict.fromkeys(gpus)
+            ]
+            futures.extend(solo_futures)
+            for future in solo_futures:
+                future.result()
     except KeyboardInterrupt:
         print(
             f"\n[{utc_now()}] interrupt received: stopping trainers. Datasets in "
@@ -1574,10 +1707,16 @@ def orchestrate_training(
         heartbeat_thread.join(timeout=5.0)
         executor.shutdown(wait=True)
 
+    # Parked for the solo phase but never resolved (interrupt landed between
+    # the phases): still pending on disk, so a re-run picks them up, but this
+    # run must not call itself conformant with work outstanding.
+    oom_unresolved = [
+        name for name in oom_solo if name not in completed and name not in failed
+    ]
     rerun = {
         "schema_version": "rf100vl.rerun.v1",
         "model_key": model_key,
-        "datasets": sorted(failed),
+        "datasets": sorted(set(failed) | set(oom_unresolved)),
         "generated_at": utc_now(),
     }
     atomic_write_json(rerun_path, rerun)
@@ -1589,6 +1728,7 @@ def orchestrate_training(
             and not failed
             and not interrupted
             and not active_running
+            and not oom_unresolved
             and libreyolo_capabilities.get("validated") is True
         ),
         "libreyolo_capabilities": libreyolo_capabilities,
@@ -1605,6 +1745,7 @@ def orchestrate_training(
         "completed": sorted(completed),
         "skipped_done": sorted(skipped_done),
         "failed": sorted(failed),
+        "oom_solo_retried": sorted(oom_solo),
         "interrupted": sorted(interrupted),
         "active_running": sorted(active_running),
         "failures_file": str(failures_path),
