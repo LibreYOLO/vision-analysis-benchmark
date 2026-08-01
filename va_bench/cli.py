@@ -473,7 +473,8 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
         Path(args.weights_root) / ".state" / args.model
     )
     print(
-        f"Monitor with: va-bench rf100vl-dash --state-root {state_root}\n"
+        f"Monitor with: va-bench rf100vl-dash --state-root {state_root} "
+        f"--data-dir {args.data_dir}\n"
     )
 
     # Read-only NVML sampling alongside the campaign. It can only add an
@@ -585,6 +586,7 @@ def cmd_rf100vl_dash(args: argparse.Namespace) -> None:
         host=args.host,
         port=args.port,
         open_browser=args.open,
+        data_dir=Path(args.data_dir) if getattr(args, "data_dir", "") else None,
     )
 
 
@@ -1223,6 +1225,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     rd.add_argument("--port", type=int, default=8877, help="Port (default: 8877)")
     rd.add_argument("--open", action="store_true", help="Open the browser")
+    rd.add_argument(
+        "--data-dir",
+        default="",
+        help="RF100-VL root. Optional, but without it the dashboard only knows "
+        "the size of datasets it has already launched, so queued datasets show "
+        "no image count and the ETA is size-blind for most of a campaign",
+    )
 
     # --- sync-artifacts ---
     sa = subparsers.add_parser(

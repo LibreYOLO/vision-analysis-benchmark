@@ -249,6 +249,15 @@ def _model_snapshot(
     model_key: str, model_dir: Path, data_dir: Path | None = None
 ) -> dict[str, Any]:
     datasets = [_dataset_record(status) for status in _dataset_statuses(model_dir)]
+    # Image count is the single best predictor of how long a dataset will take,
+    # so put it next to the dataset rather than only feeding it to the ETA
+    # model. A lane sitting at epoch 2 after twenty minutes reads as broken
+    # until you can see it is the 8791-image one.
+    sizes = _train_image_counts(model_dir, data_dir)
+    for record in datasets:
+        images = sizes.get(record["dataset"])
+        if isinstance(images, int) and images > 0:
+            record["train_images"] = images
     counts = {"pending": 0, "running": 0, "done": 0, "failed": 0}
     for record in datasets:
         counts[record["state"] if record["state"] in counts else "pending"] += 1
@@ -267,7 +276,7 @@ def _model_snapshot(
     )
     estimate = estimate_eta(
         datasets,
-        train_images=_train_image_counts(model_dir, data_dir),
+        train_images=sizes,
         lanes=lanes,
         epochs_total=epochs_total,
     )
@@ -528,6 +537,15 @@ function fmtEta(s) {
   return (s / 3600).toFixed(1) + "h";
 }
 function fmtMetric(v) { return v == null ? "-" : Number(v).toFixed(3); }
+// Training image count. Empty string rather than a dash when unknown, so the
+// caller can omit the field entirely instead of rendering a gap: the count is
+// missing for queued datasets whenever the dashboard was started without
+// --data-dir, and a row of dashes reads like data loss rather than an option
+// not passed.
+function fmtImages(n) {
+  if (n == null) return "";
+  return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k img" : n + " img";
+}
 function esc(t) { return String(t).replace(/[&<>"]/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
@@ -539,6 +557,7 @@ function laneHtml(r, model) {
   return `<div class="lane" onclick="openDrawer('${esc(model)}','${esc(r.dataset)}')">
     <span class="gpu">gpu ${esc(r.gpu ?? "?")}</span>
     <span>${esc(r.dataset)}</span>
+    <span class="dim">${fmtImages(r.train_images)}</span>
     <span class="dim">${r.epochs_done ?? "?"} / ${r.epochs_total ?? "?"}</span>
     <div class="bar"><i style="width:${pct}%"></i></div>
     <span>best ${fmtMetric(r.best_metric)}</span>
@@ -547,13 +566,14 @@ function laneHtml(r, model) {
 
 function cellHtml(r, model) {
   let sub = "";
+  const imgs = fmtImages(r.train_images);
   if (r.state === "running")
-    sub = `${r.epochs_done ?? "?"}/${r.epochs_total ?? "?"} best ${fmtMetric(r.best_metric)}`;
+    sub = `${r.epochs_done ?? "?"}/${r.epochs_total ?? "?"} best ${fmtMetric(r.best_metric)}${imgs ? " &middot; " + imgs : ""}`;
   else if (r.state === "done")
-    sub = `best ${fmtMetric(r.best_metric)} @ ep ${r.best_epoch ?? "?"}`;
+    sub = `best ${fmtMetric(r.best_metric)} @ ep ${r.best_epoch ?? "?"}${imgs ? " &middot; " + imgs : ""}`;
   else if (r.state === "failed")
     sub = esc((r.failure_message || "failed").slice(0, 60));
-  else sub = "queued";
+  else sub = imgs ? `queued &middot; ${imgs}` : "queued";
   const variant = r.run_variant === "fallback" ? " &#9888;" : "";
   return `<div class="cell s-${esc(r.state)}" title="${esc(r.dataset)}"
     onclick="openDrawer('${esc(model)}','${esc(r.dataset)}')">${esc(r.dataset)}${variant}
