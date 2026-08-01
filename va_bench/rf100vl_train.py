@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.metadata
 import os
 import queue
@@ -119,6 +120,11 @@ def require_libreyolo_protocol_capabilities() -> dict[str, Any]:
         "prediction_max_det": getattr(train_config, "max_det", None),
         "eval_max_det": getattr(train_config, "eval_max_det", None),
         "default_eval_max_det": default_validator._coco_max_det(),
+        # Reported, never required. A build without cuda_graph runs the
+        # protocol correctly, just slower, so this must not gate a campaign.
+        # It is recorded so that a run which ASKED for graphs on a build that
+        # cannot provide them is visible afterwards rather than silently eager.
+        "cuda_graph": "cuda_graph" in train_fields,
     }
 
 
@@ -407,11 +413,45 @@ def build_train_kwargs(
             "eval_max_det": 500,
         }
     )
+    # CUDA graph replay. Off unless a recipe opts in, because only some
+    # families implement a capture spec and the rest silently ignore the flag.
+    #
+    # This is an EXECUTION detail, not a hyperparameter: capture replays the
+    # same kernels in the same order, and a measured A/B on yolov9t and yolov9s
+    # produced bit-identical training loss (7.8163 both arms on yolov9s). It
+    # lives in the recipe anyway so that it is covered by the recipe hash, which
+    # means a graphed run and an eager one are distinguishable after the fact
+    # and cannot be silently mixed inside one campaign.
+    # Requested but unsupported is a downgrade, not a failure. Graph replay
+    # runs the same kernels in the same order and was measured bit-identical on
+    # loss, so an eager fallback changes how long the run takes and nothing
+    # about what it produces. Raising here would make a build without the
+    # option unable to run the protocol at all, which is far worse than being
+    # slower. The capability probe reports cuda_graph support and preflight
+    # prints it, so a run that fell back is visible afterwards.
+    if bool(protocol.get("cuda_graph", False)) and _libreyolo_supports_cuda_graph():
+        kwargs["cuda_graph"] = True
     if spec.family == "ec":
         kwargs["allow_experimental"] = True
         kwargs["optimizer"] = "adamw"
         kwargs["mosaic_prob"] = 0.0
     return kwargs
+
+
+@functools.lru_cache(maxsize=1)
+def _libreyolo_supports_cuda_graph() -> bool:
+    """Does the installed LibreYOLO expose a cuda_graph training option?
+
+    Cached: this is asked once per dataset and the answer cannot change inside
+    a run. Absence is not an error by itself, only when a recipe asks for it.
+    """
+    from dataclasses import fields
+
+    try:
+        train_config_cls, _, _ = _load_libreyolo_protocol_types()
+        return "cuda_graph" in {field.name for field in fields(train_config_cls)}
+    except Exception:
+        return False
 
 
 def _run_signature(
