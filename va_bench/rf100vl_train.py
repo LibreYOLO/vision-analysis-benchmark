@@ -444,6 +444,12 @@ def build_train_kwargs(
         kwargs["allow_experimental"] = True
         kwargs["optimizer"] = "adamw"
         kwargs["mosaic_prob"] = 0.0
+    # rtmdet/picodet trainers gate .train() behind allow_experimental (their
+    # loss/assigner ports run end-to-end but upstream-parity convergence is
+    # unverified). The campaign runs them anyway — issue #674 scopes both as
+    # NICE families — so the harness opts in, same as ec above.
+    if spec.family in ("rtmdet", "picodet"):
+        kwargs["allow_experimental"] = True
     return kwargs
 
 
