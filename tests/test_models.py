@@ -27,6 +27,7 @@ def test_registry_has_expected_models():
         "rtdetrv2-",
         "rtdetrv4-",
         "rtmdet-",
+        "yolov7",
         "yolov9",
         "yolov9e2e-",
         "yolonas-",
@@ -35,7 +36,7 @@ def test_registry_has_expected_models():
         assert any(k.startswith(fam) for k in keys)
     assert {"yolonas-s", "yolonas-m", "yolonas-l"} <= set(keys)
     assert not any(k.startswith("damoyolo-") for k in keys)
-    assert len(keys) == 67
+    assert len(keys) == 68
     assert Counter(spec.family for spec in MODEL_REGISTRY.values()) == {
         "deim": 5,
         "deimv2": 8,
@@ -48,6 +49,7 @@ def test_registry_has_expected_models():
         "rtdetrv4": 4,
         "rtmdet": 5,
         "yolonas": 3,
+        "yolov7": 1,
         "yolov9": 4,
         "yolov9-e2e": 4,
         "yolox": 6,

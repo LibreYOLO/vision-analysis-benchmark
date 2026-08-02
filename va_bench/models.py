@@ -235,6 +235,10 @@ _register(
     ModelSpec("rtmdet-m", "RTMDet-M", "rtmdet", "m", "LibreRTMDetm.pt", "m", 640, 0.0, 0.0),
     ModelSpec("rtmdet-l", "RTMDet-L", "rtmdet", "l", "LibreRTMDetl.pt", "l", 640, 0.0, 0.0),
     ModelSpec("rtmdet-x", "RTMDet-X", "rtmdet", "x", "LibreRTMDetx.pt", "x", 640, 0.0, 0.0),
+    # YOLOv7 (single variant "b"; native LibreYOLO port of the MIT
+    # MultimediaTechLab re-release, trainable via SimOTA). Params/GFLOPs from
+    # the YOLOv7 paper (arXiv 2207.02696, Table 8, 640px).
+    ModelSpec("yolov7", "YOLOv7", "yolov7", "b", "LibreYOLO7b.pt", "b", 640, 36.9, 104.7),
 )
 
 
