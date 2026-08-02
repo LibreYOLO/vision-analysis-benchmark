@@ -197,6 +197,14 @@ def read_gpu(state_root: Path, model: str, seconds: int = 600) -> dict[str, Any]
                 # Peaks, not means: a smoothed line is exactly what hides a spike.
                 "util_max": [(r.get("util") or {}).get("max") for r in records],
                 "util_mean": [(r.get("util") or {}).get("mean") for r in records],
+                # Memory as a SERIES, not just the latest value, so the panel
+                # can draw it over the utilisation line. Utilisation on this
+                # workload spends most of its time near zero between kernel
+                # launches, so an instantaneous read makes a busy card look
+                # idle; memory is flat and unambiguous, and reading the two
+                # together is the only way to tell "no work" from "between
+                # kernels". Operators have misread empty cards from this.
+                "mem_used_mb_series": [r.get("mem_used_mb") for r in records],
                 "power_mean": [(r.get("power_w") or {}).get("mean") for r in records],
                 "ts": [r.get("ts") for r in records],
             }
@@ -630,15 +638,40 @@ function fmtGpu(c) {
 
   // Sparkline of PEAKS. Plotting means would smooth away the spikes that are
   // the only reason to look at this at all.
+  //
+  // Memory rides on the same axis as a dotted orange line, both as a percent
+  // of their own maximum. They are different units, which is exactly why they
+  // belong together here: utilisation on a launch-bound run reads 0% between
+  // kernels and makes a working card look idle, while memory stays flat and
+  // says a job is resident. Two separate charts make the reader do that join
+  // in their head, and they get it wrong.
   let spark = "";
   const pts = c.util_max.filter(function (v) { return v != null; }).slice(-120);
   if (pts.length) {
     const w = 240, h = 26;
     const step = w / Math.max(1, pts.length - 1);
+    let memLine = "";
+    const memSeries = (c.mem_used_mb_series || []).slice(-120);
+    if (c.mem_total_mb && memSeries.length) {
+      // Align to the utilisation series so both lines share an x position even
+      // when a sample is missing from one of them.
+      const offset = Math.max(0, memSeries.length - pts.length);
+      const memPts = [];
+      for (let i = 0; i < pts.length; i++) {
+        const v = memSeries[offset + i];
+        if (v == null) continue;
+        const y = h - (v / c.mem_total_mb) * h;
+        memPts.push((i * step).toFixed(1) + "," + Math.max(0, Math.min(h, y)).toFixed(1));
+      }
+      if (memPts.length > 1) {
+        memLine = '<polyline fill="none" stroke="#f0a04b" stroke-width="1.1" ' +
+          'stroke-dasharray="3,2" points="' + memPts.join(" ") + '" />';
+      }
+    }
     spark = '<svg width="' + w + '" height="' + h + '" style="vertical-align:middle">' +
       '<polyline fill="none" stroke="#7fd1ff" stroke-width="1.2" points="' +
       pts.map(function (v, i) { return (i * step).toFixed(1) + "," + (h - (v / 100) * h).toFixed(1); }).join(" ") +
-      '" /></svg>';
+      '" />' + memLine + '</svg>';
   }
   const who = c.datasets.length === 0 ? '<span class="dim">idle</span>'
     : c.datasets.length === 1 ? c.datasets[0]
@@ -664,6 +697,9 @@ function renderGpus(data) {
   }
   const anyShared = data.gpus.some(function (c) { return c.shared; });
   el.innerHTML = '<h2>GPUs <span class="dim small">utilization is time-with-a-kernel-resident, not die occupancy; read it next to power/cap</span></h2>' +
+    '<div class="dim small">Sparkline: <span style="color:#7fd1ff">solid blue = utilization peak</span>, ' +
+    '<span style="color:#f0a04b">dotted orange = memory used</span>, each as a share of its own maximum. ' +
+    'A card reading 0% with memory held is between kernel launches, not idle.</div>' +
     (anyShared ? '<div class="dim small">Some cards run several jobs: those rows describe the CARD, not one dataset.</div>' : "") +
     '<table>' + data.gpus.map(fmtGpu).join("") + "</table>";
 }
