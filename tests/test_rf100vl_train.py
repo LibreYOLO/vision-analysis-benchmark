@@ -78,13 +78,24 @@ def test_generate_data_yaml_uses_all_splits_and_sorted_category_ids(tmp_path):
 
 
 def test_every_campaign_family_has_a_protocol_recipe():
-    families = set(list_families()) - {"yolov9-e2e"}
-    for family in families:
+    for family in set(list_families()):
         recipe = rf100vl_train.load_recipe(
             rf100vl_train.recipe_path_for_family(family),
             family=family,
         )
         assert recipe["protocol"]["precision"] == "fp32"
+
+
+def test_yolov9_e2e_recipe_keeps_training_capture_off():
+    """Training capture is deliberately unsupported for the e2e dual-assignment
+    head (YOLO9Trainer.cuda_graph_train_spec requires the plain DDetect head),
+    so the recipe must not ask for it until the library supports it and a
+    parity gate covers it."""
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family("yolov9-e2e"),
+        family="yolov9-e2e",
+    )
+    assert recipe["protocol"]["cuda_graph"] is False
 
 
 def test_worker_process_seed_covers_python_numpy_and_torch():
@@ -175,6 +186,31 @@ def test_fp32_recipe_disables_amp_and_freezes_selection_contract(tmp_path):
     assert kwargs["ema"] is True
     assert kwargs["max_det"] == 500
     assert kwargs["eval_max_det"] == 500
+
+
+@pytest.mark.parametrize("model_key", ["ec-s", "rtmdet-t", "picodet-s"])
+def test_experimental_trainer_families_get_the_opt_in(model_key, tmp_path):
+    """ec/rtmdet/picodet trainers refuse to start without allow_experimental;
+    the harness opts in because issue #674 scopes them as campaign families."""
+    spec = get_spec(model_key)
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family(spec.family),
+        family=spec.family,
+    )
+    batch = rf100vl_train.select_batch_plan(
+        recipe,
+        spec,
+        {"max_annotations_per_image": 1, "num_train_images": 20},
+    )
+    kwargs = rf100vl_train.build_train_kwargs(
+        recipe,
+        spec,
+        batch,
+        data_yaml=tmp_path / "data.yaml",
+        run_dir=tmp_path / "run",
+        resume=False,
+    )
+    assert kwargs["allow_experimental"] is True
 
 
 def test_capability_guard_rejects_pre_protocol_libreyolo(monkeypatch):
