@@ -245,6 +245,9 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
     """Train one fine-tuned checkpoint per RF100-VL dataset."""
     from .rf100vl_train import orchestrate_training
 
+    state_root = args.state_root or str(
+        Path(args.weights_root) / ".state" / args.model
+    )
     syncer, sync_run_id = _make_syncer(args, state_root)
     summary = orchestrate_training(
         on_dataset_complete=(syncer.notify if syncer else None),
