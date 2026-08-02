@@ -489,3 +489,35 @@ def test_child_registry_terminates_live_children_and_blocks_new_ones():
         if sleeper.poll() is None:
             sleeper.kill()
             sleeper.wait()
+
+
+def test_prune_epoch_snapshots_keeps_best_and_last(tmp_path):
+    """Successful datasets shed periodic snapshots but keep the real outputs.
+
+    epoch_N.pt is useful while a dataset trains and dead weight once it has
+    succeeded: selection is over and best.pt has been copied to the weights
+    root. Measured at 295 MB per dataset on yolov9t, which is ~30 GB across a
+    campaign and enough to run a box out of disk beside the image cache.
+    last.pt stays because a resume reads it.
+    """
+    weights = tmp_path / "weights"
+    weights.mkdir(parents=True)
+    for name in ("best.pt", "last.pt", "epoch_10.pt", "epoch_20.pt", "epoch_100.pt"):
+        (weights / name).write_bytes(b"x")
+
+    removed = rf100vl_train._prune_epoch_snapshots(tmp_path)
+
+    assert removed == 3
+    remaining = sorted(p.name for p in weights.iterdir())
+    assert remaining == ["best.pt", "last.pt"]
+
+
+def test_prune_epoch_snapshots_is_safe_when_there_is_nothing_to_prune(tmp_path):
+    """Cleanup must never be able to fail a dataset that already succeeded."""
+    assert rf100vl_train._prune_epoch_snapshots(tmp_path / "missing") == 0
+
+    weights = tmp_path / "weights"
+    weights.mkdir(parents=True)
+    (weights / "best.pt").write_bytes(b"x")
+    assert rf100vl_train._prune_epoch_snapshots(tmp_path) == 0
+    assert (weights / "best.pt").exists()

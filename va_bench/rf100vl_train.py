@@ -517,6 +517,41 @@ def _run_signature(
     )
 
 
+def _prune_epoch_snapshots(run_dir: Path) -> int:
+    """Drop periodic ``epoch_N.pt`` snapshots once a dataset has succeeded.
+
+    LibreYOLO writes a snapshot every ``save_period`` epochs. They are worth
+    having WHILE a dataset trains (crash forensics, inspecting a curve that
+    went wrong) and worthless afterwards: selection already happened, and
+    ``best.pt`` has been copied to the weights root by the time this runs.
+
+    Measured on a yolov9t campaign: 295 MB per dataset, so ~30 GB across 100
+    datasets for a 2M-parameter model, and roughly 3.6x that for yolov9s. On a
+    box also holding the post-resize image cache that is the difference between
+    a campaign finishing and dying on ENOSPC overnight.
+
+    Deliberately only on the success path. A failed or timed-out run keeps
+    every snapshot, because that is exactly when someone wants to look at them.
+    ``best.pt`` and ``last.pt`` are always kept: ``last.pt`` is what a resume
+    reads, and a dataset can be resumed later even after a successful pass.
+    """
+    weights_dir = run_dir / "weights"
+    removed = 0
+    try:
+        snapshots = sorted(weights_dir.glob("epoch_*.pt"))
+    except OSError:
+        return 0
+    for snapshot in snapshots:
+        try:
+            snapshot.unlink()
+            removed += 1
+        except OSError:
+            # Never fail a finished dataset over cleanup: the run is already
+            # done and its artifacts are already recorded.
+            continue
+    return removed
+
+
 def _is_cuda_oom(exc: BaseException) -> bool:
     message = f"{type(exc).__name__}: {exc}".lower()
     return "cuda" in message and ("out of memory" in message or "memory allocation" in message)
@@ -641,6 +676,7 @@ def run_dataset_worker(config_path: str | Path) -> int:
                 "stats_path": str(stats_path),
                 "target_checkpoint": str(target_checkpoint),
                 "wall_seconds": wall_seconds,
+                "pruned_snapshots": _prune_epoch_snapshots(run_dir),
             },
         )
         return 0
