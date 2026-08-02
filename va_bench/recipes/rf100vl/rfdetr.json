@@ -17,7 +17,8 @@
     "patience": 0,
     "ema": true,
     "seed": 0,
-    "precision": "fp32"
+    "precision": "fp32",
+    "cache": "disk"
   },
   "dense_oom_fallback": {
     "max_annotations_per_image_threshold": 200,

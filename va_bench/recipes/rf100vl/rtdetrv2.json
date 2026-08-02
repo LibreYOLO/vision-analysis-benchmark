@@ -17,7 +17,8 @@
     "patience": 0,
     "ema": true,
     "seed": 0,
-    "precision": "fp32"
+    "precision": "fp32",
+    "cache": "disk"
   },
   "sizes": {},
   "train": {
