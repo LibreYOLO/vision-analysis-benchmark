@@ -4,9 +4,11 @@
   "source": {
     "repository": "https://github.com/LibreYOLO/libreyolo",
     "commit": "358c6d3ce62128e232ee4c3898270056228c1c2f",
-    "paths": ["libreyolo/training/config.py"],
+    "paths": [
+      "libreyolo/training/config.py"
+    ],
     "license": "MIT",
-    "normalization": "YOLO9Config family defaults (MultimediaTechLab/YOLO-aligned: mixup off, no affine rotation/shear, warmup 3, min_lr_ratio 0.01, EMA 0.9999) under the RF100-VL fixed skeleton. Replaces an earlier copy of the RF5 e2e recipe (mixup 0.5, degrees 10, shear 2, warmup 5) that matched neither upstream nor LibreYOLO's yolo9 defaults. HSV and horizontal flip stay on: they are LibreYOLO's tested yolo9 defaults and match the original WongKinYiu recipe; MMT's YAML simply omits them."
+    "normalization": "YOLO9Config family defaults (MultimediaTechLab/YOLO-aligned: mixup off, no affine rotation/shear, warmup 3, min_lr_ratio 0.01, EMA 0.9999) under the RF100-VL fixed skeleton. Replaces an earlier copy of the RF5 e2e recipe (mixup 0.5, degrees 10, shear 2, warmup 5) that matched neither upstream nor LibreYOLO's yolo9 defaults. HSV and horizontal flip stay on: they are LibreYOLO's tested yolo9 defaults and match the original WongKinYiu recipe; MMT's YAML simply omits them. dense_oom_fallback exists for the REACTIVE mid-run OOM retry (physical batch 8 with accumulation 2 keeps the effective batch at 16, so numerics are unchanged). The threshold is deliberately unreachable: measured on a yolov9t campaign, annotation density does NOT predict CUDA OOM (a dataset at 5 ann/img died while one at 136 finished), because the failure is two lanes on one card peaking together rather than any property of a single dataset. A proactive density trigger would therefore fire on the wrong datasets; only the reactive retry is trustworthy here."
   },
   "protocol": {
     "epochs": 100,
@@ -22,10 +24,26 @@
     "cache": "disk"
   },
   "sizes": {
-    "t": {"imgsz": 640, "lr0": 0.005},
-    "s": {"imgsz": 640, "lr0": 0.01},
-    "m": {"imgsz": 640, "lr0": 0.01},
-    "c": {"imgsz": 640, "lr0": 0.01}
+    "t": {
+      "imgsz": 640,
+      "lr0": 0.005
+    },
+    "s": {
+      "imgsz": 640,
+      "lr0": 0.01
+    },
+    "m": {
+      "imgsz": 640,
+      "lr0": 0.01
+    },
+    "c": {
+      "imgsz": 640,
+      "lr0": 0.01
+    }
+  },
+  "dense_oom_fallback": {
+    "max_annotations_per_image_threshold": 100000,
+    "physical_batch": 8
   },
   "train": {
     "optimizer": "sgd",

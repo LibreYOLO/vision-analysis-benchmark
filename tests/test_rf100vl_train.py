@@ -489,3 +489,63 @@ def test_child_registry_terminates_live_children_and_blocks_new_ones():
         if sleeper.poll() is None:
             sleeper.kill()
             sleeper.wait()
+
+
+def test_yolov9_oom_fallback_halves_batch_and_preserves_effective_batch():
+    """Non-rfdetr families must get the mid-run OOM fallback too.
+
+    The fallback used to be gated to rfdetr, so a yolov9 CUDA OOM was terminal
+    on first attempt: the orchestrator's retry could not change the batch plan
+    and simply reproduced the OOM. Halving the physical batch while doubling
+    accumulation keeps the effective batch at the protocol's 16, so the retry
+    is numerically identical to the primary attempt.
+    """
+    spec = get_spec("yolov9t")
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family("yolov9"),
+        family="yolov9",
+    )
+    facts = {"max_annotations_per_image": 1, "num_train_images": 200}
+
+    primary = rf100vl_train.select_batch_plan(recipe, spec, facts)
+    fallback = rf100vl_train.select_batch_plan(
+        recipe, spec, facts, force_fallback=True
+    )
+
+    assert primary["physical_batch"] == 16
+    assert fallback["physical_batch"] == 8
+    assert fallback["run_variant"] == "fallback"
+    # The protocol contract: effective batch is unchanged, so the fallback is
+    # a memory tactic and not a recipe deviation.
+    assert primary["effective_batch"] == fallback["effective_batch"] == 16
+    assert fallback["gradient_accumulation_steps"] == 2
+
+
+def test_capture_race_is_classified_apart_from_generic_failure():
+    """A CUDA graph capture race must be retryable, not terminal.
+
+    While a stream captures, the DataLoader's pin-memory thread issuing
+    cudaHostAlloc is illegal and CUDA raises cudaErrorStreamCaptureUnsupported,
+    which PyTorch surfaces as AcceleratorError. It is a race rather than a
+    property of the dataset, so it earns its own state and a retry with capture
+    disabled; a plain OOM classifier would call it a generic failure and give up.
+    """
+
+    class AcceleratorError(RuntimeError):
+        pass
+
+    race = AcceleratorError(
+        "Caught AcceleratorError in pin memory thread for device 0. "
+        "CUDA error: operation not permitted when stream is capturing. "
+        "Search for `cudaErrorStreamCaptureUnsupported' in the CUDA docs"
+    )
+    assert rf100vl_train._is_cuda_graph_capture_race(race)
+    assert not rf100vl_train._is_cuda_oom(race)
+
+    oom = RuntimeError("CUDA out of memory. Tried to allocate 52.00 MiB")
+    assert rf100vl_train._is_cuda_oom(oom)
+    assert not rf100vl_train._is_cuda_graph_capture_race(oom)
+
+    unrelated = ValueError("no locked dataset version for 'foo'")
+    assert not rf100vl_train._is_cuda_oom(unrelated)
+    assert not rf100vl_train._is_cuda_graph_capture_race(unrelated)

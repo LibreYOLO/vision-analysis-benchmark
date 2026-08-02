@@ -340,8 +340,16 @@ def select_batch_plan(
     variant = "primary"
     reason = None
 
+    # Any family whose recipe declares a dense_oom_fallback gets it. This used
+    # to be gated to rfdetr, which meant every other family's CUDA OOM was
+    # terminal on first attempt: the detect -> exit 86 -> force_fallback loop
+    # below existed but could never change the batch plan, so a retry would
+    # reproduce the same OOM. Measured on a yolov9t campaign (8x16GB, 2 lanes
+    # per card): 10 of 100 datasets died this way with no retry, all of them
+    # annotation-dense rather than merely large, because the yolo9 IoU matrix
+    # is targets x predictions.
     fallback = recipe.get("dense_oom_fallback")
-    if spec.family == "rfdetr" and isinstance(fallback, dict):
+    if isinstance(fallback, dict):
         threshold = int(fallback["max_annotations_per_image_threshold"])
         fallback_batch = int(
             size_override.get(
@@ -384,6 +392,7 @@ def build_train_kwargs(
     run_dir: Path,
     resume: bool,
     smoke_epochs: int | None = None,
+    disable_cuda_graph: bool = False,
 ) -> dict[str, Any]:
     """Normalize family knobs under the fixed RF100-VL training skeleton."""
     protocol = recipe["protocol"]
@@ -430,7 +439,17 @@ def build_train_kwargs(
     # option unable to run the protocol at all, which is far worse than being
     # slower. The capability probe reports cuda_graph support and preflight
     # prints it, so a run that fell back is visible afterwards.
-    if bool(protocol.get("cuda_graph", False)) and _libreyolo_supports_cuda_graph():
+    # ``disable_cuda_graph`` is set only when a previous attempt died in a
+    # capture race. Dropping capture costs speed and nothing else: graphs
+    # replay the same kernels in the same order and were measured bit-identical
+    # on training loss, so a retried dataset stays comparable with the rest of
+    # the campaign. The recipe hash is unchanged, which is correct, because the
+    # protocol is unchanged; the deviation is recorded in the run status.
+    if (
+        bool(protocol.get("cuda_graph", False))
+        and _libreyolo_supports_cuda_graph()
+        and not disable_cuda_graph
+    ):
         kwargs["cuda_graph"] = True
     # Image cache (False / "ram" / "disk"). Same EXECUTION-detail contract as
     # cuda_graph: covered by the recipe hash, bit-identical reads when the
@@ -520,6 +539,27 @@ def _run_signature(
 def _is_cuda_oom(exc: BaseException) -> bool:
     message = f"{type(exc).__name__}: {exc}".lower()
     return "cuda" in message and ("out of memory" in message or "memory allocation" in message)
+
+
+def _is_cuda_graph_capture_race(exc: BaseException) -> bool:
+    """A CUDA graph capture that collided with another CUDA call.
+
+    While a stream is capturing, calls that allocate or synchronize are
+    illegal, and the DataLoader's pin-memory thread does exactly that
+    (``cudaHostAlloc``). When the two overlap, CUDA raises
+    ``cudaErrorStreamCaptureUnsupported`` and PyTorch surfaces it as
+    ``AcceleratorError``, killing the run.
+
+    This is a race, not a property of the dataset: it only fires when the
+    pin-memory thread happens to allocate inside the brief capture window.
+    Measured on a yolov9t campaign with ``cuda_graph: true``, it took 4 of 100
+    datasets, and the same datasets train fine on a retry. It cannot happen at
+    all without graph capture enabled, which is why the retry disables it.
+    """
+    text = f"{type(exc).__name__}: {exc} {traceback.format_exc()}".lower()
+    if "streamcaptureunsupported" in text.replace("_", ""):
+        return True
+    return "acceleratorerror" in text and "capture" in text
 
 
 def _atomic_copy(source: Path, target: Path) -> None:
@@ -645,7 +685,12 @@ def run_dataset_worker(config_path: str | Path) -> int:
         )
         return 0
     except BaseException as exc:
-        state = "oom" if _is_cuda_oom(exc) else "failed"
+        if _is_cuda_oom(exc):
+            state = "oom"
+        elif _is_cuda_graph_capture_race(exc):
+            state = "capture_race"
+        else:
+            state = "failed"
         atomic_write_json(
             result_path,
             {
@@ -658,7 +703,9 @@ def run_dataset_worker(config_path: str | Path) -> int:
                 "wall_seconds": time.perf_counter() - start_time,
             },
         )
-        return 86 if state == "oom" else 1
+        if state == "oom":
+            return 86
+        return 87 if state == "capture_race" else 1
 
 
 def _status_path(state_root: Path, dataset_name: str) -> Path:
@@ -1088,6 +1135,7 @@ def _run_attempt(
     force_fallback: bool,
     restart_reason: str | None,
     children: _ChildProcesses | None = None,
+    disable_cuda_graph: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], Path]:
     spec = get_spec(model_key)
     dataset_dir = data_dir / dataset_name
@@ -1108,6 +1156,7 @@ def _run_attempt(
         run_dir=run_dir,
         resume=False,
         smoke_epochs=smoke_epochs,
+        disable_cuda_graph=disable_cuda_graph,
     )
     recipe_sha256 = file_sha256(recipe_path)
     dataset_version_id = dataset_version(version_lock, dataset_name)
@@ -1417,8 +1466,8 @@ def orchestrate_training(
                     return
                 if (
                     worker_result.get("state") == "oom"
-                    and spec.family == "rfdetr"
                     and status.get("run_variant") == "primary"
+                    and isinstance(recipe.get("dense_oom_fallback"), dict)
                 ):
                     fallback_pending = dict(status)
                     fallback_pending.update(
@@ -1446,6 +1495,42 @@ def orchestrate_training(
                         smoke_epochs=smoke_epochs,
                         force_fallback=True,
                         restart_reason="mid_run_cuda_oom",
+                    )
+
+                # A capture race is transient, so the retry is a plain rerun
+                # with graphs off rather than a different batch plan. Guarded
+                # on run_variant so it cannot loop: one retry per dataset.
+                if (
+                    worker_result.get("state") == "capture_race"
+                    and status.get("run_variant") == "primary"
+                ):
+                    eager_pending = dict(status)
+                    eager_pending.update(
+                        {
+                            "state": "pending",
+                            "run_variant": "eager_retry",
+                            "restart_reason": "cuda_graph_capture_race",
+                            "updated_at": utc_now(),
+                        }
+                    )
+                    atomic_write_json(status_path, eager_pending)
+                    worker_result, status, status_path = _run_attempt(
+                        dataset_name=name,
+                        model_key=model_key,
+                        data_dir=data_dir,
+                        weights_root=weights_root,
+                        runs_root=runs_root,
+                        state_root=state_root,
+                        recipe_path=recipe_path,
+                        recipe=recipe,
+                        version_lock=version_lock,
+                        versions_sha256=versions_sha256,
+                        gpu=gpu,
+                        timeout_seconds=timeout_hours * 3600,
+                        smoke_epochs=smoke_epochs,
+                        force_fallback=False,
+                        restart_reason="cuda_graph_capture_race",
+                        disable_cuda_graph=True,
                     )
 
                 if worker_result.get("state") == "done":
