@@ -263,8 +263,12 @@ def _model_snapshot(
         counts[record["state"] if record["state"] in counts else "pending"] += 1
 
     running = [r for r in datasets if r["state"] == "running"]
-    gpus_active = {str(r.get("gpu")) for r in running if r.get("gpu") is not None}
-    lanes = max(1, len(gpus_active))
+    # Lanes are concurrent WORKERS, not GPUs. Counting distinct GPUs divided
+    # remaining work by 8 on an 8-GPU box running --jobs-per-gpu 2, so the ETA
+    # came out ~2x long. While anything is pending the pool is saturated, so
+    # the number of running datasets is the pool size; once the queue drains
+    # it undercounts, but by then there is little left to estimate.
+    lanes = max(1, len(running))
 
     epochs_total = next(
         (

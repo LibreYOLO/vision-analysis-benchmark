@@ -312,11 +312,76 @@ def _load_for_dataset(
     raise ValueError(f"Unsupported RF100-VL format: {fmt!r} (use pytorch or onnx)")
 
 
+#: Absolute AP gap between the selection metric (valid, logged during
+#: training) and the reported test score above which a dataset is flagged.
+#: Real train/test drift on RF100-VL sits well inside this; anything larger
+#: has repeatedly meant the two code paths disagree about the model rather
+#: than that the model generalises badly.
+SELECTION_TEST_DIVERGENCE_ATOL = 0.15
+
+
+def _selection_vs_test_divergence(
+    records: list[dict[str, Any]],
+    weights_root: str | os.PathLike[str] | None,
+) -> list[dict[str, float | str]]:
+    """Flag datasets whose training-time selection metric contradicts the test score.
+
+    Selection runs inside the trainer against the in-memory model; the reported
+    score reloads a checkpoint and evaluates it standalone. When those disagree
+    by a lot, something between them is broken -- 2026-08 it was BatchNorm eps
+    reverting on a class-count rebuild, so YOLOX-Nano selected on valid 0.5663
+    and published test 0.1620, and a full 100-dataset campaign shipped a
+    headline 0.3601 that should have been 0.4853.
+
+    Warn, never fail: a genuinely hard dataset can drift, and a benchmark run
+    that refuses to emit results is worse than one that emits them loudly
+    caveated.
+    """
+    if weights_root is None:
+        return []
+    flagged: list[dict[str, float | str]] = []
+    for record in records:
+        name = record.get("dataset")
+        stats_path = Path(weights_root) / str(name) / "stats.json"
+        if not stats_path.exists():
+            continue
+        try:
+            stats = load_json(stats_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        selection = stats.get("valid_mAP50_95")
+        test = record.get("mAP_50_95")
+        if not isinstance(selection, (int, float)) or not isinstance(test, (int, float)):
+            continue
+        delta = float(selection) - float(test)
+        if abs(delta) > SELECTION_TEST_DIVERGENCE_ATOL:
+            flagged.append(
+                {
+                    "dataset": str(name),
+                    "valid_mAP50_95": round(float(selection), 4),
+                    "test_mAP50_95": round(float(test), 4),
+                    "delta": round(delta, 4),
+                }
+            )
+    return flagged
+
+
 def _aggregate_metrics(per_dataset: list[dict[str, float]]) -> dict[str, float]:
-    """Unweighted mean of each COCO metric across datasets (RF100-VL protocol)."""
+    """Unweighted mean of each COCO metric across datasets (RF100-VL protocol).
+
+    pycocotools returns -1 for an area range with no ground truth in it, which
+    is "not applicable", not "scored zero". Averaging those in produced a
+    published ``mAP_small`` of **-0.0535** -- a negative average precision.
+    Drop them per metric so each mean is taken only over datasets where the
+    metric is defined; a metric defined nowhere stays -1 to keep saying so.
+    """
     if not per_dataset:
         raise ValueError("No datasets were evaluated; cannot aggregate.")
-    return {key: float(np.mean([m[key] for m in per_dataset])) for key in _METRIC_KEYS}
+    aggregated: dict[str, float] = {}
+    for key in _METRIC_KEYS:
+        values = [m[key] for m in per_dataset if m.get(key, -1.0) >= 0.0]
+        aggregated[key] = float(np.mean(values)) if values else -1.0
+    return aggregated
 
 
 def _manifest_sha256(records: list[dict[str, Any]]) -> str:
@@ -959,6 +1024,19 @@ def benchmark_model_rf100vl(
     }
     result["accuracy"]["AR_max_det"] = mean_metrics["AR_max_det"]
 
+    divergence = _selection_vs_test_divergence(per_dataset_records, weights_root)
+    if divergence:
+        worst = max(divergence, key=lambda d: abs(float(d["delta"])))
+        print(
+            f"\nWARNING: {len(divergence)} dataset(s) where the training-time "
+            f"selection metric disagrees with the test score by more than "
+            f"{SELECTION_TEST_DIVERGENCE_ATOL:.2f} AP. Worst: {worst['dataset']} "
+            f"valid={worst['valid_mAP50_95']} test={worst['test_mAP50_95']} "
+            f"(delta {worst['delta']:+.4f}). This usually means the training and "
+            f"evaluation paths disagree about the model, not that it generalises "
+            f"badly. Investigate before publishing."
+        )
+
     invalid_reasons = list(recipe_invalid_reasons)
     if regime != "fine-tuned":
         invalid_reasons.append("registry pretrained weights were forced")
@@ -1009,6 +1087,7 @@ def benchmark_model_rf100vl(
         },
         "dataset_versions_sha256": versions_sha256,
         "recipe_sha256": recipe_repro.get("sha256"),
+        "selection_test_divergence": divergence,
         "per_dataset_results_dir": str(cache_root),
         "valid_submission": not invalid_reasons,
         "invalid_reasons": invalid_reasons,
