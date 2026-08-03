@@ -650,6 +650,9 @@ def cmd_sync_artifacts(args: argparse.Namespace) -> None:
         }
         print(f"manifest: {commits}")
 
+    # Pass the RESOLVED recipe_path, not args.recipe: the fallback above was
+    # being computed for the manifest and then discarded here, so a sync
+    # without --recipe wrote a manifest naming a recipe and uploaded no recipe.
     items = collect_artifacts(
         model_key=args.model,
         run_id=args.run_id,
@@ -657,8 +660,9 @@ def cmd_sync_artifacts(args: argparse.Namespace) -> None:
         eval_dir=args.eval_dir or None,
         submissions_dir=args.submissions or None,
         data_dir=args.data_dir or None,
-        recipe_path=args.recipe or None,
+        recipe_path=recipe_path,
         tier=args.tier,
+        report=lambda message: print(message, flush=True),
     )
     total = sum(path.stat().st_size for path, _ in items)
     print(f"{len(items)} files, {total / 1e6:.1f} MB, tier={args.tier}")

@@ -377,6 +377,26 @@ def default_run_id(manifest: dict[str, Any]) -> str:
     return f"{day}-{manifest.get('model_key', 'model')}-{digest}"
 
 
+class IncompletePublish(RuntimeError):
+    """A publishable tier is missing artifacts that make the run reproducible."""
+
+
+def _submission_recipe_sha(submissions_dir: str | Path | None) -> str | None:
+    """recipe_sha256 recorded by the newest submission, or None."""
+    if not submissions_dir:
+        return None
+    paths = sorted(Path(submissions_dir).glob("*.json"))
+    for path in reversed(paths):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                sha = json.load(handle).get("rf100vl", {}).get("recipe_sha256")
+        except (OSError, ValueError, json.JSONDecodeError, AttributeError):
+            continue
+        if isinstance(sha, str) and len(sha) == 64:
+            return sha
+    return None
+
+
 def collect_artifacts(
     *,
     model_key: str,
@@ -387,17 +407,31 @@ def collect_artifacts(
     data_dir: str | Path | None = None,
     recipe_path: str | Path | None = None,
     tier: str = "results",
+    report: Callable[[str], None] | None = None,
 ) -> list[tuple[Path, str]]:
-    """Return (local path, path within the repo) for everything in scope."""
+    """Return (local path, path within the repo) for everything in scope.
+
+    Anything expected but absent is reported through ``report``, and for the
+    publishable ``checkpoints``/``all`` tiers a missing essential raises
+    :class:`IncompletePublish`. Silence used to be the default: ``add`` simply
+    dropped paths that did not exist, so a sync could print
+    "uploaded 303, skipped 0" while shipping no checkpoints, no recipe and no
+    supersede note. A half-published benchmark is worse than an unpublished
+    one, because it still looks citable.
+    """
     if tier not in ARTIFACT_TIERS:
         raise ValueError(f"tier must be one of {ARTIFACT_TIERS}, got {tier!r}")
     weights_root = Path(weights_root)
     prefix = f"{model_key}/{run_id}"
     items: list[tuple[Path, str]] = []
+    missing: list[str] = []
+    say = report or (lambda message: None)
 
-    def add(path: Path, repo_path: str) -> None:
+    def add(path: Path, repo_path: str, *, required: bool = False) -> None:
         if path.is_file():
             items.append((path, f"{prefix}/{repo_path}"))
+        elif required:
+            missing.append(f"{repo_path} (expected at {path})")
 
     state = weights_root / ".state" / model_key
     for name in STATE_FILES:
@@ -406,10 +440,26 @@ def collect_artifacts(
         for log in sorted((state / "logs").glob("*.log")):
             add(log, f"state/logs/{log.name}")
 
+    publishable = tier in ("checkpoints", "all")
+
     if data_dir:
-        add(Path(data_dir) / "versions.json", "provenance/versions.json")
+        add(
+            Path(data_dir) / "versions.json",
+            "provenance/versions.json",
+            required=publishable,
+        )
     if recipe_path:
-        add(Path(recipe_path), f"provenance/{Path(recipe_path).name}")
+        add(
+            Path(recipe_path),
+            f"provenance/{Path(recipe_path).name}",
+            required=publishable,
+        )
+    elif publishable:
+        missing.append(
+            "provenance/<recipe>.json (no recipe_path was given; every "
+            "submission cites recipe_sha256, so publishing without the file "
+            "it names leaves the run unreproducible)"
+        )
 
     runs = weights_root / ".runs" / model_key
     if runs.is_dir():
@@ -423,10 +473,18 @@ def collect_artifacts(
                 if tier == "all":
                     add(variant / "weights" / "last.pt", f"{base}/weights/last.pt")
 
+    # The canonical weights root is <root>/<dataset>/<weight file> -- the layout
+    # --weights-root documents and the evaluator actually reads. Only .runs was
+    # ever collected, so a root built any other way (an eps-folded rescue set,
+    # a hand-assembled comparison) uploaded zero checkpoints without a word.
+    # The uploader and the evaluator disagreed about where checkpoints live.
     if weights_root.is_dir():
         for dataset_dir in sorted(p for p in weights_root.iterdir()
                                   if p.is_dir() and not p.name.startswith(".")):
             add(dataset_dir / "stats.json", f"stats/{dataset_dir.name}.json")
+            if publishable:
+                for weight in sorted(dataset_dir.glob("*.pt")):
+                    add(weight, f"weights/{dataset_dir.name}/{weight.name}")
 
     if eval_dir:
         eval_root = Path(eval_dir)
@@ -438,6 +496,61 @@ def collect_artifacts(
     if submissions_dir:
         for path in sorted(Path(submissions_dir).glob("*.json")):
             add(path, f"submissions/{path.name}")
+
+    if publishable:
+        # Every dataset that trained (has stats.json) must ship a checkpoint,
+        # from either layout. Reporting the count rather than the names keeps
+        # the message readable when a whole campaign is missing.
+        trained = {
+            p.name
+            for p in weights_root.iterdir()
+            if p.is_dir() and not p.name.startswith(".") and (p / "stats.json").is_file()
+        } if weights_root.is_dir() else set()
+        # Both layouts put the dataset at the same depth under the run prefix:
+        #   <model>/<run>/weights/<dataset>/<file>.pt          (flat)
+        #   <model>/<run>/runs/<dataset>/<variant>/weights/... (.runs)
+        shipped = set()
+        for _, repo in items:
+            parts = repo.split("/")
+            if repo.endswith(".pt") and len(parts) > 3 and parts[2] in ("weights", "runs"):
+                shipped.add(parts[3])
+        absent = sorted(trained - shipped)
+        if absent:
+            missing.append(
+                f"a checkpoint for {len(absent)} of {len(trained)} trained "
+                f"dataset(s), e.g. {', '.join(absent[:3])}"
+            )
+        if submissions_dir and not any("/submissions/" in r for _, r in items):
+            missing.append("submissions/<model>.json (no submission JSON found)")
+
+    # A recipe file that disagrees with the hash the submission cites is worse
+    # than no recipe: it turns a visible gap into an invisible contradiction.
+    # The resolver falls back to the packaged family recipe when --recipe is
+    # omitted, which is the wrong file for any run that used a custom one.
+    if publishable and recipe_path and Path(recipe_path).is_file():
+        claimed = _submission_recipe_sha(submissions_dir)
+        if claimed:
+            actual = _sha256(Path(recipe_path))
+            if actual != claimed:
+                raise IncompletePublish(
+                    f"Recipe mismatch for {model_key}: {Path(recipe_path).name} "
+                    f"hashes to {actual[:16]} but the submission records "
+                    f"recipe_sha256 {claimed[:16]}. Uploading it would label "
+                    "the run with a recipe that did not produce it. Pass the "
+                    "recipe the campaign actually ran with."
+                )
+
+    if missing:
+        detail = "\n".join(f"  - {m}" for m in missing)
+        if publishable:
+            raise IncompletePublish(
+                f"Refusing to publish an incomplete {tier!r} run for "
+                f"{model_key}: the following are missing.\n{detail}\n"
+                "Publishing a benchmark without its weights or recipe yields "
+                "an artifact that looks citable and cannot be reproduced. Pass "
+                "--recipe, check --weights-root, or use --tier results."
+            )
+        say(f"sync-artifacts: {len(missing)} expected artifact(s) absent:\n{detail}")
 
     return items
 
