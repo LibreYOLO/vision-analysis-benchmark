@@ -70,10 +70,15 @@ def test_collect_results_tier_excludes_weights(tmp_path):
 
 def test_collect_tiers_add_weights_progressively(tmp_path):
     weights = _make_campaign(tmp_path)
+    # The publishable tiers now require a recipe, so supply one: this test is
+    # about tier layering, not about the publish contract.
+    recipe = tmp_path / "recipe.json"
+    recipe.write_bytes(b"{}")
 
     def paths(tier):
         return {repo for _, repo in collect_artifacts(
-            model_key="yolov9t", run_id="r1", weights_root=weights, tier=tier)}
+            model_key="yolov9t", run_id="r1", weights_root=weights, tier=tier,
+            recipe_path=recipe)}
 
     checkpoints = paths("checkpoints")
     everything = paths("all")
