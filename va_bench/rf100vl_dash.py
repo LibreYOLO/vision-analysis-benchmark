@@ -285,6 +285,8 @@ def _model_snapshot(
         epochs_total=epochs_total,
     )
     eta_seconds = estimate["p50_seconds"] or None
+    eta_available = estimate.get("available", True)
+    eta_reason = estimate.get("reason")
 
     summary = _read_json(model_dir / "summary.json") or {}
     capabilities = summary.get("libreyolo_capabilities") or {}
@@ -293,6 +295,8 @@ def _model_snapshot(
         "counts": counts,
         "total": len(datasets),
         "eta_seconds": eta_seconds,
+        "eta_available": eta_available,
+        "eta_reason": eta_reason,
         "eta_is_estimate": True,
         "eta": estimate,
         "libreyolo_version": capabilities.get("version"),
@@ -691,8 +695,11 @@ function render(state) {
       <span class="chip c-run">${c.running} running</span>
       <span class="chip c-pend">${c.pending} pending</span>
       <span class="chip c-fail">${c.failed} failed</span>
-      <span class="dim small">of ${m.total}${m.eta_seconds != null
-        ? " &middot; est. remaining " + fmtEta(m.eta_seconds) : ""}${m.libreyolo_version
+      <span class="dim small">of ${m.total}${m.eta_available === false
+        ? ' &middot; <span title="' + esc(m.eta_reason || "") + '">ETA not available yet'
+          + ' (warmup/cache fill)</span>'
+        : (m.eta_seconds != null
+          ? " &middot; est. remaining " + fmtEta(m.eta_seconds) : "")}${m.libreyolo_version
         ? " &middot; libreyolo " + esc(m.libreyolo_version) : ""}</span></div>
       ${running.length ? '<div class="lanes">'
         + running.map(r => laneHtml(r, m.model)).join("") + "</div>" : ""}

@@ -255,6 +255,44 @@ def estimate_eta(
         else (model["fixed_epoch_seconds"] * epochs_total if model["observations"] else 0.0)
     )
 
+    # Refuse to guess while every lane is still in its opening epochs. A run's
+    # first epochs carry the image-cache fill, allocator warmup and cuDNN
+    # autotuning, so `wall / epochs_done` there is not a per-epoch cost, it is a
+    # startup cost being annualised. `observations()` already excludes those
+    # points from the fit; extrapolating them per-lane below produced the same
+    # contamination by another route. Measured 2026-08: a cache-filling ec-s
+    # campaign with zero completed epochs reported "est. remaining 64.9h", and
+    # a yolox-tiny campaign reported 16.3h from the same artifact. A number
+    # that wrong is worse than no number, because it gets used for money
+    # decisions.
+    usable = [
+        r
+        for r in running
+        if isinstance(r.get("epochs_done"), int)
+        and r["epochs_done"] >= MIN_EPOCHS_OBSERVED
+    ]
+    # Only when lanes are ACTUALLY running and all of them are still warming.
+    # A campaign that has not started yet has no misleading evidence, just no
+    # evidence, and keeps the long-standing "no observations yet" answer.
+    if running and not finished and not usable:
+        return {
+            "p50_seconds": None,
+            "p90_seconds": None,
+            "available": False,
+            "reason": (
+                "no dataset has finished, and no running dataset has passed "
+                f"epoch {MIN_EPOCHS_OBSERVED}. Early epochs carry the image-cache "
+                "fill and warmup, so any estimate now would be extrapolating "
+                "startup cost across the whole campaign."
+            ),
+            "lanes": lanes,
+            "pending": len(pending),
+            "running": len(running),
+            "done": 0,
+            "model": model,
+            "predicted_total_seconds": {},
+        }
+
     # Remaining time on each lane currently busy.
     lane_free_at: list[float] = []
     for record in running:
@@ -262,7 +300,14 @@ def estimate_eta(
         total = predict_seconds(model, images, epochs_total, default_total)
         done = record.get("epochs_done") or 0
         elapsed = record.get("wall_seconds") or 0.0
-        per_epoch = _epoch_seconds(record)
+        # Only trust a lane's own per-epoch rate once it is past the warmup
+        # epochs; otherwise fall back to the fitted model, which was built from
+        # vetted points.
+        per_epoch = (
+            _epoch_seconds(record)
+            if isinstance(done, int) and done >= MIN_EPOCHS_OBSERVED
+            else None
+        )
         if per_epoch:
             remaining = max(0.0, (epochs_total - float(done)) * per_epoch)
         else:
@@ -286,6 +331,8 @@ def estimate_eta(
     return {
         "p50_seconds": p50,
         "p90_seconds": p90,
+        "available": True,
+        "reason": None,
         "lanes": lanes,
         "pending": len(pending),
         "running": len(running),
