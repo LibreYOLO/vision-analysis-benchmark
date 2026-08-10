@@ -266,6 +266,7 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
         state_root=args.state_root,
         smoke_epochs=args.smoke_epochs,
         force=args.force,
+        keep_cache=args.keep_cache,
     )
     _stop_syncer(syncer)
     print(
@@ -1212,6 +1213,14 @@ def main(argv: list[str] | None = None) -> None:
         "--no-gpu-trace",
         action="store_true",
         help="Disable GPU telemetry capture (on by default; ~4.4 MB per campaign)",
+    )
+    rc.add_argument(
+        "--keep-cache",
+        action="store_true",
+        help="Keep each dataset's post-resize .npy cache and its last.pt once "
+        "the dataset finishes. Off by default: across 100 datasets those are "
+        "the two largest consumers on a campaign box and neither is read again "
+        "after a dataset is done.",
     )
     rc.add_argument(
         "--dollars-per-hour",
