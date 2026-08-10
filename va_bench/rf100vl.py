@@ -70,6 +70,10 @@ PROTOCOL_MAX_DET = 500
 PROTOCOL_VERSION = "rf100vl.libreyolo.v1"
 PER_DATASET_RESULT_SCHEMA = "rf100vl.dataset-result.v1"
 TRAIN_STATS_SCHEMA = "rf100vl.train-stats.v1"
+# Kept in step with PRECISION_AMP_DTYPE in rf100vl_train.py, which is the
+# source of truth. A checkpoint trained at a precision this set does not know
+# is treated as training metadata that does not match the campaign.
+PROTOCOL_PRECISIONS = frozenset({"fp32", "bfloat16", "fp16"})
 PROTOCOL_EPOCHS = 100
 PROTOCOL_SEED = 0
 
@@ -423,6 +427,7 @@ def _recipe_repro(
         )
 
     hashes: dict[str, list[str]] = {}
+    precisions: set[str] = set()
     files: set[str] = set()
     missing: list[str] = []
     nonconformant: list[str] = []
@@ -469,8 +474,10 @@ def _recipe_repro(
             for key, expected in expected_metadata.items()
             if expected is not None and stats.get(key) != expected
         }
-        if stats.get("precision") not in {"fp32", "bfloat16"}:
+        if stats.get("precision") not in PROTOCOL_PRECISIONS:
             mismatched_fields.add("precision")
+        else:
+            precisions.add(str(stats.get("precision")))
         capabilities = stats.get("libreyolo_capabilities")
         if (
             not isinstance(capabilities, dict)
@@ -504,16 +511,27 @@ def _recipe_repro(
             f"that does not match this campaign: {', '.join(offending)}"
         )
     recipe_sha = next(iter(hashes)) if len(hashes) == 1 else None
+    # One precision for the whole campaign, or none if the checkpoints
+    # disagree. Recorded so a reader can tell an fp16 run from an fp32 one
+    # without refetching the recipe.
+    training_precision = next(iter(precisions)) if len(precisions) == 1 else None
+    if len(precisions) > 1:
+        reasons.append(
+            "evaluated checkpoints were trained at more than one precision: "
+            + ", ".join(sorted(precisions))
+        )
     if explicit is not None:
         if hashes and set(hashes) != {explicit["sha256"]}:
             reasons.append("explicit recipe hash does not match per-dataset training stats")
         explicit["dataset_count"] = sum(len(names) for names in hashes.values())
+        explicit["training_precision"] = training_precision
         return explicit, reasons
     return {
         "file": next(iter(files)) if len(files) == 1 else None,
         "sha256": recipe_sha,
         "source": "per-dataset stats.json",
         "dataset_count": sum(len(names) for names in hashes.values()),
+        "training_precision": training_precision,
     }, reasons
 
 
@@ -1087,6 +1105,7 @@ def benchmark_model_rf100vl(
         },
         "dataset_versions_sha256": versions_sha256,
         "recipe_sha256": recipe_repro.get("sha256"),
+        "training_precision": recipe_repro.get("training_precision"),
         "selection_test_divergence": divergence,
         "per_dataset_results_dir": str(cache_root),
         "valid_submission": not invalid_reasons,

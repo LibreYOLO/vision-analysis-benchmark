@@ -6,7 +6,7 @@
     "commit": "3e3c9dffc9e4bd41a363f1dd6ca1c736e145a5d8",
     "paths": ["libreyolo/training/config.py"],
     "license": "MIT",
-    "normalization": "LibreYOLO EC AdamW/no-mosaic defaults under the RF100-VL fixed skeleton"
+    "normalization": "LibreYOLO EC AdamW/no-mosaic defaults under the RF100-VL fixed skeleton. Precision fp16 to match the EdgeCrafter reference training, which sets use_amp with a GradScaler (ecdetseg/configs/ecdet/ecdet.yml), and LibreYOLO ECConfig, which enables amp and inherits the float16 dtype."
   },
   "protocol": {
     "epochs": 100,
@@ -17,7 +17,7 @@
     "patience": 0,
     "ema": true,
     "seed": 0,
-    "precision": "fp32",
+    "precision": "fp16",
     "cache": "disk"
   },
   "sizes": {

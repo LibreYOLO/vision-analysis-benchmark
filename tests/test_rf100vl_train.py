@@ -77,13 +77,29 @@ def test_generate_data_yaml_uses_all_splits_and_sorted_category_ids(tmp_path):
     assert facts["category_ids"] == [2, 7]
 
 
+# Families whose campaign precision is deliberately not fp32, and why. A new
+# family cannot quietly pick its own precision: it has to be added here, which
+# is the moment to justify it against the upstream reference.
+NON_FP32_FAMILIES = {
+    # EdgeCrafter trains with use_amp + GradScaler upstream
+    # (ecdetseg/configs/ecdet/ecdet.yml), and LibreYOLO's ECConfig defaults to
+    # amp with the inherited float16 dtype. fp32 would match neither.
+    "ec": "fp16",
+}
+
+
 def test_every_campaign_family_has_a_protocol_recipe():
     for family in set(list_families()):
         recipe = rf100vl_train.load_recipe(
             rf100vl_train.recipe_path_for_family(family),
             family=family,
         )
-        assert recipe["protocol"]["precision"] == "fp32"
+        precision = recipe["protocol"]["precision"]
+        assert precision in rf100vl_train.PRECISIONS
+        assert precision == NON_FP32_FAMILIES.get(family, "fp32"), (
+            f"{family} uses {precision}; add it to NON_FP32_FAMILIES with a "
+            "reason if that is intended"
+        )
 
 
 def test_yolov9_e2e_recipe_keeps_training_capture_off():
@@ -186,6 +202,57 @@ def test_fp32_recipe_disables_amp_and_freezes_selection_contract(tmp_path):
     assert kwargs["ema"] is True
     assert kwargs["max_det"] == 500
     assert kwargs["eval_max_det"] == 500
+
+
+@pytest.mark.parametrize(
+    ("precision", "expect_amp", "expect_dtype"),
+    [
+        ("fp32", False, "bfloat16"),
+        ("bfloat16", True, "bfloat16"),
+        ("fp16", True, "float16"),
+    ],
+)
+def test_recipe_precision_selects_the_autocast_dtype(
+    precision, expect_amp, expect_dtype, tmp_path
+):
+    """The autocast dtype must follow the recipe.
+
+    Regression: amp was derived as ``precision == "bfloat16"`` and the dtype
+    was the literal ``"bfloat16"``, so an fp16 recipe trained in fp32 while
+    claiming fp16 in its stats and submission.
+    """
+    spec = get_spec("ec-s")
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family("ec"),
+        family="ec",
+    )
+    recipe["protocol"]["precision"] = precision
+    batch = rf100vl_train.select_batch_plan(
+        recipe,
+        spec,
+        {"max_annotations_per_image": 1, "num_train_images": 20},
+    )
+    kwargs = rf100vl_train.build_train_kwargs(
+        recipe,
+        spec,
+        batch,
+        data_yaml=tmp_path / "data.yaml",
+        run_dir=tmp_path / "run",
+        resume=False,
+    )
+    assert kwargs["amp"] is expect_amp
+    assert kwargs["amp_dtype"] == expect_dtype
+
+
+def test_ec_recipe_matches_the_upstream_reference_precision():
+    """EdgeCrafter trains with use_amp + GradScaler upstream, and LibreYOLO's
+    ECConfig defaults to amp with the inherited float16 dtype. The campaign
+    recipe follows both rather than forcing a precision neither uses."""
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family("ec"),
+        family="ec",
+    )
+    assert recipe["protocol"]["precision"] == "fp16"
 
 
 @pytest.mark.parametrize("model_key", ["ec-s", "rtmdet-t", "picodet-s"])
