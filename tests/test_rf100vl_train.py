@@ -592,3 +592,51 @@ def test_child_registry_terminates_live_children_and_blocks_new_ones():
         if sleeper.poll() is None:
             sleeper.kill()
             sleeper.wait()
+
+
+def test_finished_dataset_reclaims_cache_and_resume_checkpoint(tmp_path):
+    """A finished dataset keeps what is read again and drops what is not.
+
+    The post-resize cache and last.pt are the two largest consumers on a
+    campaign box. A campaign has already filled a 250 GB disk and deadlocked
+    every worker because nothing removed them.
+    """
+    dataset = tmp_path / "some-dataset"
+    (dataset / "train").mkdir(parents=True)
+    image = dataset / "train" / "a.jpg"
+    image.write_bytes(b"jpeg")
+    cached = dataset / "train" / "a.jpg.npy"
+    cached.write_bytes(b"x" * 4096)
+    (dataset / "train" / "_annotations.coco.json").write_text("{}")
+
+    weights = tmp_path / "run" / "weights"
+    weights.mkdir(parents=True)
+    (weights / "last.pt").write_bytes(b"y" * 2048)
+    (weights / "best.pt").write_bytes(b"z" * 1024)
+
+    freed = rf100vl_train.reclaim_finished_dataset(dataset, tmp_path / "run")
+
+    assert freed == 4096 + 2048
+    assert not cached.exists()
+    assert not (weights / "last.pt").exists()
+    # what the uploader ships and what the images are must survive
+    assert (weights / "best.pt").read_bytes() == b"z" * 1024
+    assert image.read_bytes() == b"jpeg"
+    assert (dataset / "train" / "_annotations.coco.json").exists()
+
+
+def test_keep_cache_opts_out_of_reclaiming_the_cache(tmp_path):
+    dataset = tmp_path / "some-dataset"
+    (dataset / "train").mkdir(parents=True)
+    cached = dataset / "train" / "a.jpg.npy"
+    cached.write_bytes(b"x" * 4096)
+    weights = tmp_path / "run" / "weights"
+    weights.mkdir(parents=True)
+    (weights / "last.pt").write_bytes(b"y" * 2048)
+
+    freed = rf100vl_train.reclaim_finished_dataset(
+        dataset, tmp_path / "run", keep_cache=True
+    )
+
+    assert cached.exists()
+    assert freed == 2048
