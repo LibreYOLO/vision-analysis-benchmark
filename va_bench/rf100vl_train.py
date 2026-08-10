@@ -42,6 +42,21 @@ EXPECTED_EPOCHS = 100
 EXPECTED_EFFECTIVE_BATCH = 16
 EXPECTED_SELECTION_METRIC = "valid_mAP50_95"
 
+# Autocast dtype per recipe precision. fp32 trains eagerly and the dtype is
+# unused. fp16 is here because forcing a family to a precision its authors
+# never used is itself a distortion: EdgeCrafter's reference training sets
+# use_amp with a GradScaler, and LibreYOLO's own ECConfig defaults to fp16 to
+# match. LibreYOLO enables the GradScaler for fp16 and skips it for bf16, so
+# the loss-scaling that fp16 needs is handled. Whichever is chosen, the run
+# records it in the submission, because a result whose precision cannot be
+# identified is not comparable to one whose can.
+PRECISION_AMP_DTYPE = {
+    "fp32": None,
+    "bfloat16": "bfloat16",
+    "fp16": "float16",
+}
+PRECISIONS = frozenset(PRECISION_AMP_DTYPE)
+
 
 def _load_libreyolo_protocol_types():
     from libreyolo.training.config import TrainConfig
@@ -186,10 +201,10 @@ def load_recipe(
         }
         if mismatches:
             raise ValueError(f"Recipe {path} violates the RF100-VL fixed skeleton: {mismatches}")
-        if protocol.get("precision") not in {"fp32", "bfloat16"}:
+        if protocol.get("precision") not in PRECISIONS:
             raise ValueError(
-                f"Recipe {path} precision must be fp32 or bfloat16; "
-                "fp16 autocast is not protocol-conformant"
+                f"Recipe {path} precision must be one of {sorted(PRECISIONS)}; "
+                f"got {protocol.get('precision')!r}"
             )
 
     physical_batch = protocol.get("physical_batch")
@@ -405,8 +420,10 @@ def build_train_kwargs(
             "name": run_dir.name,
             "exist_ok": True,
             "resume": resume,
-            "amp": precision == "bfloat16",
-            "amp_dtype": "bfloat16",
+            # Derive both from one table. Reading the dtype off a literal
+            # comparison silently trained fp16 recipes in fp32.
+            "amp": PRECISION_AMP_DTYPE.get(precision) is not None,
+            "amp_dtype": PRECISION_AMP_DTYPE.get(precision) or "bfloat16",
             "patience": 0,
             "eval_interval": 1,
             "ema": True,
