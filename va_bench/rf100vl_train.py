@@ -570,6 +570,50 @@ def _atomic_copy(source: Path, target: Path) -> None:
     temporary.replace(target)
 
 
+def reclaim_finished_dataset(
+    dataset_dir: Path,
+    run_dir: Path,
+    *,
+    keep_cache: bool = False,
+) -> int:
+    """Drop what a finished dataset no longer needs, and return bytes freed.
+
+    Two things pile up per dataset and neither is needed once it is done:
+
+    The post-resize image cache, one ``.npy`` beside each image. It is read
+    only by the epochs of the dataset that wrote it. Left behind it is the
+    single largest consumer on a campaign box: measured at 157 GB across the
+    100 datasets, and 71 GB for the 16 concurrently active ones, against a
+    250 GB disk. A campaign has filled its disk and deadlocked every worker on
+    this alone.
+
+    ``last.pt``, which exists to resume an interrupted dataset. ``best.pt``
+    and the copy at the weights root are what the uploader ships and what the
+    skip logic reads, so those stay. At 51M parameters ``last.pt`` is 635 MB,
+    or 63 GB across a campaign.
+
+    Deleting the cache of a dataset another campaign is training on the same
+    box costs that campaign a re-cache, not correctness.
+    """
+    freed = 0
+    if not keep_cache:
+        for cached in dataset_dir.rglob("*.npy"):
+            try:
+                size = cached.stat().st_size
+                cached.unlink()
+                freed += size
+            except OSError:
+                continue
+    resume_checkpoint = run_dir / "weights" / "last.pt"
+    try:
+        if resume_checkpoint.is_file():
+            freed += resume_checkpoint.stat().st_size
+            resume_checkpoint.unlink()
+    except OSError:
+        pass
+    return freed
+
+
 def run_dataset_worker(config_path: str | Path) -> int:
     """Train one dataset inside an isolated child process."""
     config = load_json(config_path)
@@ -685,6 +729,14 @@ def run_dataset_worker(config_path: str | Path) -> int:
         }
         stats_path = target_checkpoint.parent / "stats.json"
         atomic_write_json(stats_path, stats)
+        # Only after stats and the checkpoint are safely written: reclaiming
+        # first would risk deleting a resume point for a dataset that then
+        # failed to record itself as done.
+        freed = reclaim_finished_dataset(
+            dataset_dir,
+            run_dir,
+            keep_cache=bool(config.get("keep_cache", False)),
+        )
         atomic_write_json(
             result_path,
             {
@@ -692,6 +744,7 @@ def run_dataset_worker(config_path: str | Path) -> int:
                 "stats_path": str(stats_path),
                 "target_checkpoint": str(target_checkpoint),
                 "wall_seconds": wall_seconds,
+                "reclaimed_bytes": freed,
             },
         )
         return 0
@@ -1147,6 +1200,7 @@ def _run_attempt(
     restart_reason: str | None,
     children: _ChildProcesses | None = None,
     disable_cuda_graph: bool = False,
+    keep_cache: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], Path]:
     spec = get_spec(model_key)
     dataset_dir = data_dir / dataset_name
@@ -1230,6 +1284,7 @@ def _run_attempt(
         "smoke_epochs": smoke_epochs,
         "restart_reason": restart_reason,
         "disable_cuda_graph": disable_cuda_graph,
+        "keep_cache": keep_cache,
     }
     worker_config_path = _worker_config_path(state_root, dataset_name)
     atomic_write_json(worker_config_path, worker_config)
@@ -1323,6 +1378,7 @@ def orchestrate_training(
     state_root: str | Path | None = None,
     smoke_epochs: int | None = None,
     force: bool = False,
+    keep_cache: bool = False,
 ) -> dict[str, Any]:
     """Run a name-addressed dataset queue with ``jobs_per_gpu`` lanes per GPU."""
     # (see order_longest_first for why the queue is not alphabetical)
@@ -1450,6 +1506,7 @@ def orchestrate_training(
                     recipe_path=recipe_path,
                     recipe=recipe,
                     version_lock=version_lock,
+                    keep_cache=keep_cache,
                     versions_sha256=versions_sha256,
                     gpu=gpu,
                     timeout_seconds=timeout_hours * 3600,
@@ -1502,6 +1559,7 @@ def orchestrate_training(
                         recipe_path=recipe_path,
                         recipe=recipe,
                         version_lock=version_lock,
+                        keep_cache=keep_cache,
                         versions_sha256=versions_sha256,
                         gpu=gpu,
                         timeout_seconds=timeout_hours * 3600,
@@ -1544,6 +1602,7 @@ def orchestrate_training(
                         recipe_path=recipe_path,
                         recipe=recipe,
                         version_lock=version_lock,
+                        keep_cache=keep_cache,
                         versions_sha256=versions_sha256,
                         gpu=gpu,
                         timeout_seconds=timeout_hours * 3600,
