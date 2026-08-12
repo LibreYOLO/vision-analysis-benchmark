@@ -22,6 +22,7 @@
   },
   "sizes": {},
   "train": {
+    "save_period": 0,
     "imgsz": 640,
     "optimizer": "adamw",
     "lr0": 0.0001,

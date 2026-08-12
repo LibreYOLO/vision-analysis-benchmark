@@ -27,6 +27,7 @@
     "x": {"imgsz": 640, "lr0": 0.0005, "backbone_lr_mult": 0.01}
   },
   "train": {
+    "save_period": 0,
     "optimizer": "adamw",
     "weight_decay": 0.0001,
     "scheduler": "flat_cosine",
