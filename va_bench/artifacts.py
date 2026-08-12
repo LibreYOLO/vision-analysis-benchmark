@@ -381,11 +381,22 @@ class IncompletePublish(RuntimeError):
     """A publishable tier is missing artifacts that make the run reproducible."""
 
 
-def _submission_recipe_sha(submissions_dir: str | Path | None) -> str | None:
-    """recipe_sha256 recorded by the newest submission, or None."""
+def _submission_recipe_sha(
+    submissions_dir: str | Path | None,
+    model_key: str | None = None,
+) -> str | None:
+    """recipe_sha256 recorded by this model's newest submission, or None.
+
+    Submissions are written to one shared directory, so it accumulates every
+    earlier campaign's files. Reading the newest of ALL of them compared a
+    neighbouring model's recipe against this one and refused the upload: a
+    stale yolox submission blocked three ec-s attempts with a mismatch error
+    that named ec-s. Only this model's own submissions can describe its run.
+    """
     if not submissions_dir:
         return None
-    paths = sorted(Path(submissions_dir).glob("*.json"))
+    pattern = f"{model_key}__*.json" if model_key else "*.json"
+    paths = sorted(Path(submissions_dir).glob(pattern))
     for path in reversed(paths):
         try:
             with open(path, encoding="utf-8") as handle:
@@ -528,7 +539,7 @@ def collect_artifacts(
     # The resolver falls back to the packaged family recipe when --recipe is
     # omitted, which is the wrong file for any run that used a custom one.
     if publishable and recipe_path and Path(recipe_path).is_file():
-        claimed = _submission_recipe_sha(submissions_dir)
+        claimed = _submission_recipe_sha(submissions_dir, model_key)
         if claimed:
             actual = _sha256(Path(recipe_path))
             if actual != claimed:

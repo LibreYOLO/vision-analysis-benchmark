@@ -640,3 +640,42 @@ def test_keep_cache_opts_out_of_reclaiming_the_cache(tmp_path):
 
     assert cached.exists()
     assert freed == 2048
+
+
+def test_every_recipe_disables_periodic_snapshots():
+    """LibreYOLO's TrainConfig defaults to save_period=10, so families whose
+    trainer honours it write a full checkpoint every 10 epochs: ~1000 files and
+    150 GB across one campaign, on a 250 GB box. Nothing reads them. Resume
+    uses last.pt, selection uses best.pt, and the uploader ships best.pt. A
+    campaign already hit 97% disk on these alone."""
+    for family in set(list_families()):
+        recipe = rf100vl_train.load_recipe(
+            rf100vl_train.recipe_path_for_family(family),
+            family=family,
+        )
+        assert recipe["train"].get("save_period") == 0, (
+            f"{family} does not disable save_period; periodic snapshots will "
+            "fill the campaign box"
+        )
+
+
+def test_submission_recipe_sha_reads_only_this_model(tmp_path):
+    """Submissions land in one shared directory that accumulates every earlier
+    campaign. Reading the newest of all of them compared a neighbour's recipe
+    against this run and refused the upload."""
+    import json as _json
+    from va_bench import artifacts
+
+    def write(name, sha):
+        (tmp_path / name).write_text(
+            _json.dumps({"rf100vl": {"recipe_sha256": sha}}), encoding="utf-8"
+        )
+
+    mine = "a" * 64
+    theirs = "b" * 64
+    write("ec-s__pytorch__cuda__x__20260101T000000Z.json", mine)
+    # sorts after ours, and is what the old code would have picked
+    write("yolox-m__pytorch__cuda__x__20260909T000000Z.json", theirs)
+
+    assert artifacts._submission_recipe_sha(tmp_path, "ec-s") == mine
+    assert artifacts._submission_recipe_sha(tmp_path, "yolox-m") == theirs

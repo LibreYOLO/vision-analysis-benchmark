@@ -26,6 +26,7 @@
     "l": {"imgsz": 640, "lr0": 0.0005}
   },
   "train": {
+    "save_period": 0,
     "optimizer": "adamw",
     "momentum": 0.9,
     "weight_decay": 0.00001,
