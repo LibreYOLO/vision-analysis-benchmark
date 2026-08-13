@@ -85,6 +85,11 @@ NON_FP32_FAMILIES = {
     # (ecdetseg/configs/ecdet/ecdet.yml), and LibreYOLO's ECConfig defaults to
     # amp with the inherited float16 dtype. fp32 would match neither.
     "ec": "fp16",
+    # rf-detr trains under autocast with the dtype hardcoded to torch.bfloat16
+    # (rfdetr/engine.py::get_autocast_args at tag 1.2.0, the release current
+    # when Roboflow published their RF100-VL numbers) and ModelConfig.amp
+    # defaults to True. fp32 would be a deviation, not the conservative choice.
+    "rfdetr": "bfloat16",
 }
 
 
@@ -146,9 +151,33 @@ def test_dense_rfdetr_selects_fallback_and_micro_dataset_keeps_one_batch():
     }
     plan = rf100vl_train.select_batch_plan(recipe, spec, facts)
     assert plan["run_variant"] == "fallback"
-    assert plan["physical_batch"] == 2
+    assert plan["physical_batch"] == 4
     assert plan["effective_batch"] == 16
     assert plan["expected_batches_per_epoch_minimum"] == 1
+
+
+def test_rfdetr_recipe_matches_roboflows_own_rf100vl_settings():
+    """RF-DETR's authors state their RF100-VL numbers came from the rf-detr
+    defaults with one override: batch 16 and grad accum 1, not the library's
+    default batch 4 / accum 4. Autocast in rf-detr 1.2.0 is hardcoded to
+    bfloat16, so fp32 is a deviation too. Both are easy to reintroduce by
+    copying another family's recipe, and neither is visible in a result table,
+    so pin them here.
+    """
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family("rfdetr"),
+        family="rfdetr",
+    )
+    protocol = recipe["protocol"]
+    assert protocol["physical_batch"] == 16, "Roboflow ran batch 16, grad accum 1"
+    assert protocol["precision"] == "bfloat16", "rf-detr autocasts to bfloat16"
+    # A post-resize image cache pins one resolution per image, which silently
+    # defeats the multi_scale sampling this recipe asks for.
+    assert not protocol.get("cache", False)
+    assert recipe["train"]["multi_scale"] is True
+    # Sizes n/s/m inherit the batch; only l steps down, and only for VRAM.
+    for size in ("n", "s", "m"):
+        assert "physical_batch" not in recipe["sizes"][size]
 
 
 def test_rfdetr_l_oom_fallback_reduces_batch():

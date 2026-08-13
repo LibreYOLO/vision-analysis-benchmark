@@ -6,23 +6,36 @@
     "commit": "3e3c9dffc9e4bd41a363f1dd6ca1c736e145a5d8",
     "paths": ["libreyolo/models/rfdetr/config.py"],
     "license": "MIT",
-    "normalization": "LibreYOLO RF-DETR fine-tune defaults under the RF100-VL fixed skeleton"
+    "normalization": "Roboflow's own RF100-VL settings for RF-DETR under the RF100-VL fixed skeleton",
+    "upstream_reference": {
+      "repository": "https://github.com/roboflow/rf-detr",
+      "ref": "1.2.0",
+      "paths": ["rfdetr/config.py", "rfdetr/engine.py"],
+      "license": "Apache-2.0",
+      "protocol_statement": "https://github.com/roboflow/rf-detr/issues/266#issuecomment-3110260396",
+      "quote": "The RF-DETR numbers for the current release are using the default arguments but with batch size 16 and grad accum 1",
+      "known_deviations": [
+        "Roboflow initialised from private Objects365 checkpoints that were never released; we start from the public COCO rf-detr-*.pth. Maintainer estimates the gap at ~0.1 mAP.",
+        "Roboflow's published table predates their own fix for an incorrectly initialised detection head, so their numbers are not reproducible by any current code.",
+        "Size l runs physical_batch 2 because 704 px at batch 16 does not fit 16 GB; every other size runs Roboflow's batch 16 / grad accum 1.",
+        "Resize uses cv2 INTER_LINEAR without antialias."
+      ]
+    }
   },
   "protocol": {
     "epochs": 100,
     "effective_batch": 16,
-    "physical_batch": 4,
+    "physical_batch": 16,
     "selection_metric": "valid_mAP50_95",
     "eval_interval": 1,
     "patience": 0,
     "ema": true,
     "seed": 0,
-    "precision": "fp32",
-    "cache": "disk"
+    "precision": "bfloat16"
   },
   "dense_oom_fallback": {
     "max_annotations_per_image_threshold": 200,
-    "physical_batch": 2
+    "physical_batch": 4
   },
   "sizes": {
     "n": {"imgsz": 384},
@@ -55,9 +68,8 @@
     "multi_scale": true,
     "expanded_scales": true,
     "crop_resize_prob": 0.5,
-    "backbone_lr_mult": 0.1,
     "clip_max_norm": 0.1,
     "ema_decay": 0.993,
-    "workers": 0
+    "workers": 2
   }
 }
