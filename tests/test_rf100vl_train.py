@@ -171,8 +171,12 @@ def test_rfdetr_recipe_matches_roboflows_own_rf100vl_settings():
     protocol = recipe["protocol"]
     assert protocol["physical_batch"] == 16, "Roboflow ran batch 16, grad accum 1"
     assert protocol["precision"] == "bfloat16", "rf-detr autocasts to bfloat16"
-    # A post-resize image cache pins one resolution per image, which silently
-    # defeats the multi_scale sampling this recipe asks for.
+    # RF-DETR's transform sets wants_unresized_image, so libreyolo/data/cache.py
+    # gives it the PRE-resize cache point: full-resolution decoded pixels, which
+    # skips JPEG decode but not the resize. That trades an order of magnitude of
+    # disk per image for decode only, and filling 100 datasets' worth of it is
+    # what deadlocked this box once already. Families that take the post-resize
+    # point (yolox, yolov9, yolonas) do cache, and should.
     assert not protocol.get("cache", False)
     assert recipe["train"]["multi_scale"] is True
     # Sizes n/s/m inherit the batch; only l steps down, and only for VRAM.
