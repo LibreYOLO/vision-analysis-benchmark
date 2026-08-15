@@ -262,6 +262,7 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
         num_shards=args.num_shards,
         timeout_hours=args.timeout_hours,
         jobs_per_gpu=args.jobs_per_gpu,
+        gpus_per_job=args.gpus_per_job,
         runs_root=args.runs_root,
         state_root=args.state_root,
         smoke_epochs=args.smoke_epochs,
@@ -514,10 +515,12 @@ def cmd_rf100vl_campaign(args: argparse.Namespace) -> None:
         num_shards=1,
         timeout_hours=args.timeout_hours,
         jobs_per_gpu=args.jobs_per_gpu,
+        gpus_per_job=args.gpus_per_job,
         runs_root=args.runs_root,
         state_root=args.state_root,
         smoke_epochs=args.smoke_epochs,
         force=args.force,
+        keep_cache=args.keep_cache,
     )
     # Stop the sampler and write its per-dataset traces BEFORE the final sync,
     # or the telemetry lands on disk after the last upload and never leaves the
@@ -1067,6 +1070,24 @@ def main(argv: list[str] | None = None) -> None:
         "fills a card that one small model cannot.",
     )
     rft.add_argument(
+        "--gpus-per-job",
+        type=int,
+        default=1,
+        help="GPUs per training lane (DDP). --gpus is grouped into lanes of "
+        "this width and each dataset trains on a whole lane, with the "
+        "recipe's global batch split across the lane's ranks. For models "
+        "whose protocol batch does not fit one card. Mutually exclusive "
+        "with --jobs-per-gpu > 1.",
+    )
+    rft.add_argument(
+        "--keep-cache",
+        action="store_true",
+        help="Keep each dataset's post-resize .npy cache and its last.pt once "
+        "the dataset finishes. Off by default: across 100 datasets those are "
+        "the two largest consumers on a campaign box and neither is read again "
+        "after a dataset is done.",
+    )
+    rft.add_argument(
         "--datasets",
         nargs="+",
         default=None,
@@ -1208,6 +1229,16 @@ def main(argv: list[str] | None = None) -> None:
         help="Concurrent trainings per GPU. Each is an ordinary independent "
         "run at the recipe's batch, so results are unchanged; this only "
         "fills a card that one small model cannot.",
+    )
+    rc.add_argument(
+        "--gpus-per-job",
+        type=int,
+        default=1,
+        help="GPUs per training lane (DDP). --gpus is grouped into lanes of "
+        "this width and each dataset trains on a whole lane, with the "
+        "recipe's global batch split across the lane's ranks. For models "
+        "whose protocol batch does not fit one card. Mutually exclusive "
+        "with --jobs-per-gpu > 1.",
     )
     rc.add_argument(
         "--no-gpu-trace",

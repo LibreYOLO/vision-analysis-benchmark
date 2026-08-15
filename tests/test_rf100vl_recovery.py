@@ -419,3 +419,93 @@ def test_capture_race_with_graphs_already_disabled_is_final(tmp_path, monkeypatc
     assert summary["completed"] == []
     assert summary["failed"] == ["racy"]
     assert len(launcher.calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# DDP lanes (gpus_per_job > 1)
+# ---------------------------------------------------------------------------
+
+
+def test_ddp_lanes_group_gpus_and_record_the_width(tmp_path, monkeypatch):
+    monkeypatch.setattr(rf100vl_train, "_libreyolo_supports_ddp", lambda: True)
+    names = ["alpha", "beta"]
+    summary, launcher = _orchestrate(
+        tmp_path,
+        monkeypatch,
+        {"alpha": ["done"], "beta": ["done"]},
+        names,
+        gpus=["0", "1", "2", "3"],
+        gpus_per_job=2,
+    )
+
+    assert sorted(summary["completed"]) == names
+    assert {call["gpu"] for call in launcher.calls} <= {"0,1", "2,3"}
+
+    for name in names:
+        config = json.loads(
+            (tmp_path / "state" / "jobs" / f"{name}.json").read_text(encoding="utf-8")
+        )
+        assert config["batch_plan"]["ddp_world_size"] == 2
+        assert config["batch_plan"]["per_gpu_physical_batch"] == 8
+
+
+def test_ddp_lane_oom_retries_at_full_width(tmp_path, monkeypatch):
+    """The solo drain must hand an OOM'd dataset its lane back at the SAME
+    width: shrinking to one GPU would change the run signature and turn the
+    resume into a hard refusal."""
+    monkeypatch.setattr(rf100vl_train, "_libreyolo_supports_ddp", lambda: True)
+    names = ["alpha", "densy"]
+    summary, launcher = _orchestrate(
+        tmp_path,
+        monkeypatch,
+        {"alpha": ["done"], "densy": ["oom", "done"]},
+        names,
+        gpus=["0", "1"],
+        gpus_per_job=2,
+    )
+
+    assert sorted(summary["completed"]) == names
+    densy_calls = [call for call in launcher.calls if call["dataset"] == "densy"]
+    assert len(densy_calls) == 2
+    assert all(call["gpu"] == "0,1" for call in densy_calls)
+
+
+def test_ddp_lane_argument_validation(tmp_path, monkeypatch):
+    monkeypatch.setattr(rf100vl_train, "_libreyolo_supports_ddp", lambda: True)
+    names = ["alpha"]
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    root_a.mkdir()
+    root_b.mkdir()
+    with pytest.raises(ValueError, match="divide into lanes"):
+        _orchestrate(
+            root_a,
+            monkeypatch,
+            {"alpha": ["done"]},
+            names,
+            gpus=["0", "1", "2"],
+            gpus_per_job=2,
+        )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        _orchestrate(
+            root_b,
+            monkeypatch,
+            {"alpha": ["done"]},
+            names,
+            gpus=["0", "1"],
+            gpus_per_job=2,
+            jobs_per_gpu=2,
+        )
+
+
+def test_ddp_lanes_refuse_a_libreyolo_without_ddp(tmp_path, monkeypatch):
+    monkeypatch.setattr(rf100vl_train, "_libreyolo_supports_ddp", lambda: False)
+    with pytest.raises(RuntimeError, match="ddp_spawn"):
+        _orchestrate(
+            tmp_path,
+            monkeypatch,
+            {"alpha": ["done"]},
+            ["alpha"],
+            gpus=["0", "1"],
+            gpus_per_job=2,
+        )

@@ -708,3 +708,122 @@ def test_submission_recipe_sha_reads_only_this_model(tmp_path):
 
     assert artifacts._submission_recipe_sha(tmp_path, "ec-s") == mine
     assert artifacts._submission_recipe_sha(tmp_path, "yolox-m") == theirs
+
+
+# ---------------------------------------------------------------------------
+# DDP lanes (gpus_per_job > 1)
+# ---------------------------------------------------------------------------
+
+
+def test_lane_world_size_reads_the_lane_spec():
+    assert rf100vl_train._lane_world_size("0") == 1
+    assert rf100vl_train._lane_world_size("4,5") == 2
+    assert rf100vl_train._lane_world_size(" 4 , 5 , 6 , 7 ") == 4
+
+
+def test_ddp_lane_keeps_the_global_batch_and_names_every_device(tmp_path):
+    """A 2-GPU lane must not change the protocol: the plan keeps the recipe's
+    global physical batch, the split is derived, and the worker's device spec
+    names one index per rank of the lane."""
+    spec = get_spec("rfdetr-m")
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family("rfdetr"),
+        family="rfdetr",
+    )
+    facts = {"max_annotations_per_image": 1, "num_train_images": 20}
+
+    plan = rf100vl_train.select_batch_plan(recipe, spec, facts, world_size=2)
+    assert plan["physical_batch"] == 16
+    assert plan["effective_batch"] == 16
+    assert plan["gradient_accumulation_steps"] == 1
+    assert plan["ddp_world_size"] == 2
+    assert plan["per_gpu_physical_batch"] == 8
+
+    kwargs = rf100vl_train.build_train_kwargs(
+        recipe,
+        spec,
+        plan,
+        data_yaml=tmp_path / "data.yaml",
+        run_dir=tmp_path / "run",
+        resume=False,
+    )
+    assert kwargs["device"] == "0,1"
+    assert kwargs["batch"] == 16
+    assert kwargs["nbs"] == 16
+
+    solo = rf100vl_train.select_batch_plan(recipe, spec, facts)
+    solo_kwargs = rf100vl_train.build_train_kwargs(
+        recipe,
+        spec,
+        solo,
+        data_yaml=tmp_path / "data.yaml",
+        run_dir=tmp_path / "run",
+        resume=False,
+    )
+    assert solo_kwargs["device"] == "0"
+
+
+def test_ddp_lane_rejects_a_batch_that_does_not_split():
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family("rfdetr"),
+        family="rfdetr",
+    )
+    facts = {"max_annotations_per_image": 1, "num_train_images": 20}
+    with pytest.raises(ValueError, match="split evenly"):
+        rf100vl_train.select_batch_plan(
+            recipe, get_spec("rfdetr-m"), facts, world_size=3
+        )
+    # rfdetr-l's recipe override is physical batch 2, which cannot feed 4 ranks.
+    with pytest.raises(ValueError, match="split evenly"):
+        rf100vl_train.select_batch_plan(
+            recipe, get_spec("rfdetr-l"), facts, world_size=4
+        )
+
+
+def test_run_signature_is_unchanged_for_single_gpu_and_widens_for_ddp(tmp_path):
+    """Signatures of every existing single-GPU campaign must keep hashing as
+    before this change (banked checkpoints stay resumable), while a DDP lane
+    signs its width so a checkpoint cannot silently resume at another."""
+    spec = get_spec("rfdetr-m")
+    recipe = rf100vl_train.load_recipe(
+        rf100vl_train.recipe_path_for_family("rfdetr"),
+        family="rfdetr",
+    )
+    facts = {
+        "max_annotations_per_image": 1,
+        "num_train_images": 20,
+        "train_annotations_sha256": "d" * 64,
+    }
+
+    def signature(plan):
+        kwargs = rf100vl_train.build_train_kwargs(
+            recipe,
+            spec,
+            plan,
+            data_yaml=tmp_path / "data.yaml",
+            run_dir=tmp_path / "run",
+            resume=False,
+        )
+        return rf100vl_train._run_signature(
+            model_key=spec.key,
+            recipe_sha256="a" * 64,
+            versions_sha256="b" * 64,
+            dataset_name="aerial-cows",
+            dataset_version_id=1,
+            dataset_facts=facts,
+            batch_plan=plan,
+            train_kwargs=kwargs,
+        )
+
+    modern = rf100vl_train.select_batch_plan(recipe, spec, facts)
+    # A plan recorded before ddp_world_size existed: same fields, no new keys.
+    legacy = {
+        key: value
+        for key, value in modern.items()
+        if key not in ("ddp_world_size", "per_gpu_physical_batch")
+    }
+    wide = rf100vl_train.select_batch_plan(recipe, spec, facts, world_size=2)
+
+    assert signature(modern) == signature(legacy)
+    assert signature(wide) != signature(modern)
+

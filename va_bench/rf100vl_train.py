@@ -141,6 +141,11 @@ def require_libreyolo_protocol_capabilities() -> dict[str, Any]:
         # cannot provide them is visible afterwards rather than silently eager.
         "cuda_graph": "cuda_graph" in train_fields,
         "cache": "cache" in train_fields,
+        # Reported like cuda_graph/cache, but REQUIRED (checked by the
+        # orchestrator, not here) as soon as a lane spans more than one GPU:
+        # a multi-GPU lane on a build without the spawn module would train on
+        # one GPU and silently misreport its plan.
+        "ddp": _libreyolo_supports_ddp(),
     }
 
 
@@ -346,9 +351,21 @@ def select_batch_plan(
     dataset_facts: dict[str, Any],
     *,
     force_fallback: bool = False,
+    world_size: int = 1,
 ) -> dict[str, Any]:
-    """Choose the immutable per-dataset physical/effective batch plan."""
+    """Choose the immutable per-dataset physical/effective batch plan.
+
+    ``world_size`` is the number of GPUs in this dataset's lane. Above 1 the
+    lane trains one dataset with DDP: LibreYOLO splits the GLOBAL physical
+    batch evenly across ranks (``batch // world_size`` per GPU), so the
+    protocol's batch semantics are unchanged and only the per-GPU memory
+    drops. The plan therefore keeps recording the global batch; the split is
+    derived, and recorded alongside so a run's memory footprint is legible
+    from its stats.
+    """
     protocol = recipe["protocol"]
+    if world_size < 1:
+        raise ValueError(f"world_size must be >= 1, got {world_size}")
     size_override = _size_overrides(recipe, spec)
     primary_batch = int(size_override.get("physical_batch", protocol["physical_batch"]))
     batch = primary_batch
@@ -375,6 +392,12 @@ def select_batch_plan(
         raise ValueError(
             f"Physical batch {batch} does not divide effective batch {effective_batch}"
         )
+    if batch % world_size != 0:
+        raise ValueError(
+            f"Physical batch {batch} does not split evenly over {world_size} "
+            "GPUs; every rank needs the same whole per-GPU batch or the global "
+            "batch the protocol fixes would silently change"
+        )
     num_images = int(dataset_facts["num_train_images"])
     expected_batches = 1 if num_images < batch else num_images // batch
     if expected_batches < 1:
@@ -385,6 +408,8 @@ def select_batch_plan(
         "physical_batch": batch,
         "effective_batch": effective_batch,
         "gradient_accumulation_steps": effective_batch // batch,
+        "ddp_world_size": world_size,
+        "per_gpu_physical_batch": batch // world_size,
         "num_train_images": num_images,
         "expected_batches_per_epoch_minimum": expected_batches,
     }
@@ -407,6 +432,14 @@ def build_train_kwargs(
     kwargs.pop("physical_batch", None)
     kwargs.pop("fallback_physical_batch", None)
     precision = str(protocol["precision"])
+    # The lane's GPUs are always remapped to 0..N-1 by CUDA_VISIBLE_DEVICES
+    # before the worker starts. One GPU keeps the historical "0"; a DDP lane
+    # names them all, which is exactly the device spec LibreYOLO's ddp_aware
+    # train() turns into an mp.spawn of one rank per GPU. The batch stays the
+    # GLOBAL physical batch: LibreYOLO splits it per rank and derives
+    # accumulation from nbs against the global batch, so effective batch 16 is
+    # preserved bit-for-bit at the optimizer-step level.
+    world_size = int(batch_plan.get("ddp_world_size", 1))
     kwargs.update(
         {
             "data": str(data_yaml),
@@ -414,7 +447,7 @@ def build_train_kwargs(
             "batch": int(batch_plan["physical_batch"]),
             "nbs": int(batch_plan["effective_batch"]),
             "imgsz": int(kwargs.get("imgsz", spec.input_size)),
-            "device": "0",
+            "device": ",".join(str(index) for index in range(world_size)) or "0",
             "seed": int(protocol["seed"]),
             "project": str(run_dir.parent),
             "name": run_dir.name,
@@ -492,6 +525,24 @@ def _libreyolo_supports_cuda_graph() -> bool:
 
 
 @functools.lru_cache(maxsize=1)
+def _libreyolo_supports_ddp() -> bool:
+    """Does the installed LibreYOLO ship the DDP auto-spawn path?
+
+    ``model.train(device="0,1")`` multi-GPU lanes ride on
+    ``libreyolo.training.ddp_spawn`` (the ``ddp_aware`` decorator). Probed by
+    import machinery rather than by importing, because this is asked during
+    capability probing where a heavy import failure must not masquerade as a
+    missing feature.
+    """
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec("libreyolo.training.ddp_spawn") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+@functools.lru_cache(maxsize=1)
 def _libreyolo_supports_cache() -> bool:
     """Does the installed LibreYOLO expose TrainConfig.cache?
 
@@ -514,30 +565,37 @@ def _run_signature(
     batch_plan: dict[str, Any],
     train_kwargs: dict[str, Any],
 ) -> str:
-    return canonical_json_sha256(
-        {
-            "protocol_version": PROTOCOL_VERSION,
-            "model_key": model_key,
-            "recipe_sha256": recipe_sha256,
-            "versions_sha256": versions_sha256,
-            "dataset": dataset_name,
-            "dataset_version": dataset_version_id,
-            "train_annotations_sha256": dataset_facts["train_annotations_sha256"],
-            "run_variant": batch_plan["run_variant"],
-            "physical_batch": batch_plan["physical_batch"],
-            "effective_batch": batch_plan["effective_batch"],
-            "epochs": train_kwargs["epochs"],
-            "imgsz": train_kwargs["imgsz"],
-            "precision": {
-                "amp": train_kwargs["amp"],
-                "amp_dtype": train_kwargs["amp_dtype"],
-            },
-            "evaluation": {
-                "max_det": train_kwargs["max_det"],
-                "eval_max_det": train_kwargs["eval_max_det"],
-            },
-        }
-    )
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "model_key": model_key,
+        "recipe_sha256": recipe_sha256,
+        "versions_sha256": versions_sha256,
+        "dataset": dataset_name,
+        "dataset_version": dataset_version_id,
+        "train_annotations_sha256": dataset_facts["train_annotations_sha256"],
+        "run_variant": batch_plan["run_variant"],
+        "physical_batch": batch_plan["physical_batch"],
+        "effective_batch": batch_plan["effective_batch"],
+        "epochs": train_kwargs["epochs"],
+        "imgsz": train_kwargs["imgsz"],
+        "precision": {
+            "amp": train_kwargs["amp"],
+            "amp_dtype": train_kwargs["amp_dtype"],
+        },
+        "evaluation": {
+            "max_det": train_kwargs["max_det"],
+            "eval_max_det": train_kwargs["eval_max_det"],
+        },
+    }
+    # DDP changes what a run produces (per-rank sampler sharding and
+    # augmentation seeds), unlike cuda_graph/cache, so a checkpoint banked at
+    # one lane width must not resume at another. Added only when the lane is
+    # actually multi-GPU: every existing single-GPU signature, including those
+    # of campaigns in flight when this landed, hashes exactly as before.
+    world_size = int(batch_plan.get("ddp_world_size", 1))
+    if world_size > 1:
+        payload["ddp_world_size"] = world_size
+    return canonical_json_sha256(payload)
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -964,10 +1022,45 @@ def _worker_result_path(
     return state_root / "worker-results" / f"{dataset_name}.{signature[:16]}.json"
 
 
+def _lane_world_size(gpu: str) -> int:
+    """Number of GPUs in a lane spec: ``"3"`` is 1, ``"4,5"`` is 2."""
+    return max(1, len([part for part in str(gpu).split(",") if part.strip()]))
+
+
+def _process_descendants(process: subprocess.Popen) -> list:
+    """Snapshot the child's live descendants BEFORE signalling it.
+
+    A single-GPU worker trains in the direct child, but a DDP lane's child is
+    only the mp.spawn parent: the rank processes are non-daemonic
+    grandchildren, and killing the parent alone leaves them holding the lane's
+    VRAM until NCCL times out. The snapshot must happen while the parent is
+    alive, because a dead parent cannot be asked for its children.
+    """
+    import psutil
+
+    try:
+        return psutil.Process(process.pid).children(recursive=True)
+    except psutil.Error:
+        return []
+
+
+def _reap_descendants(descendants: list) -> None:
+    """Kill any snapshot descendants that outlived their parent."""
+    import psutil
+
+    for descendant in descendants:
+        try:
+            if descendant.is_running():
+                descendant.kill()
+        except psutil.Error:
+            continue
+
+
 def _terminate_child(process: subprocess.Popen) -> None:
     """Stop one trainer child, escalating to kill if it ignores the signal."""
     if process.poll() is not None:
         return
+    descendants = _process_descendants(process)
     try:
         process.terminate()
         process.wait(timeout=20)
@@ -979,6 +1072,7 @@ def _terminate_child(process: subprocess.Popen) -> None:
             pass
     except OSError:
         pass
+    _reap_descendants(descendants)
 
 
 class _ChildProcesses:
@@ -1093,8 +1187,10 @@ def _launch_child(
                     raise
             return process.wait(timeout=timeout_seconds), False
         except subprocess.TimeoutExpired:
+            descendants = _process_descendants(process)
             process.kill()
             process.wait()
+            _reap_descendants(descendants)
             log.write(f"\n[{utc_now()}] dataset exceeded timeout\n")
             return None, True
 
@@ -1210,6 +1306,7 @@ def _run_attempt(
         spec,
         facts,
         force_fallback=force_fallback,
+        world_size=_lane_world_size(gpu),
     )
     run_dir = runs_root / dataset_name / batch_plan["run_variant"]
     data_yaml = run_dir / "data.yaml"
@@ -1373,6 +1470,7 @@ def orchestrate_training(
     num_shards: int = 1,
     timeout_hours: float = 6.0,
     jobs_per_gpu: int = 1,
+    gpus_per_job: int = 1,
     on_dataset_complete: Callable[[str], None] | None = None,
     runs_root: str | Path | None = None,
     state_root: str | Path | None = None,
@@ -1380,7 +1478,12 @@ def orchestrate_training(
     force: bool = False,
     keep_cache: bool = False,
 ) -> dict[str, Any]:
-    """Run a name-addressed dataset queue with ``jobs_per_gpu`` lanes per GPU."""
+    """Run a name-addressed dataset queue over GPU lanes.
+
+    ``jobs_per_gpu`` packs several lanes onto one card (small models);
+    ``gpus_per_job`` spans one lane across several cards via DDP (models whose
+    protocol batch does not fit one card). They are mutually exclusive.
+    """
     # (see order_longest_first for why the queue is not alphabetical)
     # Heartbeat interval for the periodic progress line on stdout. The
     # orchestrator is otherwise silent between launch and summary, which on a
@@ -1423,10 +1526,34 @@ def orchestrate_training(
     gpus = [str(value) for value in (gpus or ["0"])]
     if not gpus:
         raise ValueError("At least one GPU id is required")
+    if any("," in gpu for gpu in gpus):
+        raise ValueError(
+            "GPU ids must be single indices; group them into DDP lanes with "
+            "--gpus-per-job instead of comma-nesting"
+        )
     if len(set(gpus)) != len(gpus):
         raise ValueError("GPU ids must be unique (use --jobs-per-gpu to pack a card)")
     if jobs_per_gpu < 1:
         raise ValueError("jobs_per_gpu must be >= 1")
+    if gpus_per_job < 1:
+        raise ValueError("gpus_per_job must be >= 1")
+    if gpus_per_job > 1:
+        if jobs_per_gpu != 1:
+            raise ValueError(
+                "gpus_per_job > 1 and jobs_per_gpu > 1 are mutually exclusive: "
+                "a lane either spans several GPUs or shares one, not both"
+            )
+        if len(gpus) % gpus_per_job != 0:
+            raise ValueError(
+                f"{len(gpus)} GPU id(s) do not divide into lanes of "
+                f"{gpus_per_job}; pass a multiple of gpus_per_job"
+            )
+        if not _libreyolo_supports_ddp():
+            raise RuntimeError(
+                "Installed LibreYOLO has no libreyolo.training.ddp_spawn, so a "
+                "multi-GPU lane would silently train on one GPU; install a "
+                "revision with DDP auto-spawn or drop --gpus-per-job"
+            )
     if timeout_hours <= 0:
         raise ValueError("timeout_hours must be positive")
     if smoke_epochs is not None and smoke_epochs < 1:
@@ -1744,7 +1871,19 @@ def orchestrate_training(
     # Raising the batch size instead would change the thing under test, and
     # gradient accumulation is not numerically equivalent for this family
     # (BatchNorm statistics and a batch-global loss normalizer both break it).
-    lanes = [gpu for gpu in gpus for _ in range(jobs_per_gpu)]
+    #
+    # The inverse of packing is a DDP lane (gpus_per_job > 1): one dataset
+    # spanning several GPUs, for the models whose protocol batch does not fit
+    # one card. The lane is a comma-joined GPU group; everything downstream
+    # (CUDA_VISIBLE_DEVICES, the batch plan, the run signature) reads the
+    # width off that string.
+    if gpus_per_job > 1:
+        lanes = [
+            ",".join(gpus[index : index + gpus_per_job])
+            for index in range(0, len(gpus), gpus_per_job)
+        ]
+    else:
+        lanes = [gpu for gpu in gpus for _ in range(jobs_per_gpu)]
     executor = ThreadPoolExecutor(max_workers=len(lanes))
     futures: list[Any] = []
     try:
@@ -1765,9 +1904,13 @@ def orchestrate_training(
             solo_work: queue.Queue[str] = queue.Queue()
             for name in sorted(oom_solo):
                 solo_work.put(name)
+            # Deduplicated lanes, not raw GPU ids: with jobs_per_gpu packing
+            # this is one lane per card exactly as before, and a DDP lane
+            # retries at its full width rather than shrinking to one GPU
+            # (which would change the run signature and refuse the resume).
             solo_futures = [
                 executor.submit(consume, gpu, solo_work, True)
-                for gpu in dict.fromkeys(gpus)
+                for gpu in dict.fromkeys(lanes)
             ]
             futures.extend(solo_futures)
             for future in solo_futures:
