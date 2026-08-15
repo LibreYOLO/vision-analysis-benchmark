@@ -100,11 +100,17 @@ def _gpu_to_datasets(state_dir: Path) -> dict[int, list[str]]:
         except Exception:
             continue
         if status.get("state") == "running" and status.get("gpu") is not None:
-            try:
-                index = int(status["gpu"])
-            except (TypeError, ValueError):
-                continue
-            mapping.setdefault(index, []).append(str(status.get("dataset", "?")))
+            # The gpu field is a lane spec: one index, or a comma-joined DDP
+            # group like "4,5". A DDP dataset belongs on every card it spans,
+            # so its trace attributes the whole lane rather than vanishing on
+            # the int() parse.
+            for part in str(status["gpu"]).split(","):
+                part = part.strip()
+                try:
+                    index = int(part)
+                except (TypeError, ValueError):
+                    continue
+                mapping.setdefault(index, []).append(str(status.get("dataset", "?")))
     return {index: sorted(names) for index, names in mapping.items()}
 
 

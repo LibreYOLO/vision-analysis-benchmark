@@ -324,6 +324,42 @@ headroom set it; re-measure after stack changes). The campaign prints a
 Monitor line and a Profile line — use `libreyolo profile phases` on a slow
 dataset before inventing theories.
 
+### Multi-GPU lanes (`--gpus-per-job`), for models that do not fit one card
+
+The inverse of packing. When the protocol batch of a model does not fit a
+single GPU (measured 2026-08: rfdetr-m and rfdetr-l at batch 16 need ~31 GB,
+and batch 8 already OOMs a 16 GB card), group the cards into DDP lanes
+instead of renting a bigger one:
+
+```bash
+va-bench rf100vl-campaign --model rfdetr-m   --data-dir /root/rf100-vl --weights-root /root/rf100vl-weights   --gpus 0,1,2,3,4,5,6,7 --gpus-per-job 4
+```
+
+That is 2 lanes of 4 GPUs; each dataset trains on a whole lane. What it does
+and does not change:
+
+- The recipe's GLOBAL batch is untouched. LibreYOLO splits it across the
+  lane's ranks (`batch // world_size` per GPU: 16 over 4 GPUs is 4 per card,
+  ~7 GB for rfdetr-m) and derives accumulation from `nbs` against the global
+  batch, so effective batch 16 holds at the optimizer step.
+- RF-DETR's per-step multi-scale draw is seeded by the step counter, so all
+  ranks resize to the SAME resolution each step: closer to the reference
+  single-GPU batch-16 semantics than the grad-accum fallback, which averages
+  a different scale per micro-batch.
+- It is NOT bit-identical to a single-GPU run (sampler sharding and per-rank
+  augmentation seeds differ), so the lane width is part of the run
+  signature: a dataset started at one width resumes only at that width, and
+  the solo OOM drain retries at full lane width. Single-GPU signatures are
+  unchanged, so banked checkpoints from earlier campaigns stay resumable.
+- `--gpus-per-job` and `--jobs-per-gpu` are mutually exclusive, and the GPU
+  count must divide into whole lanes.
+- `rfdetr-l` still carries a `physical_batch: 2` size override from the
+  16 GB era. Running l at the protocol batch over a lane needs a recipe
+  change (which re-signs the campaign); decide that before dataset one.
+
+Shake down a lane exactly like a card: one dense dataset, `--smoke-epochs 2`,
+read the true per-GPU peak with the lane you will actually run.
+
 Detach (Ctrl-b d). If ANYTHING dies, up to and including the box, re-running
 this *identical* command resumes only if the recipe hash is unchanged:
 finished datasets are skipped, interrupted ones continue from `last.pt`.
