@@ -28,6 +28,7 @@ from .coco_eval import evaluate_coco
 from .hardware import collect_all as collect_hw
 from .hardware import get_runtime_device_name
 from .models import (
+    G0_G1_REFERENCE_COMMIT,
     check_params,
     count_onnx_params,
     get_spec,
@@ -127,7 +128,7 @@ COCO_80_TO_91 = [
     90,
 ]
 
-SUPPORTED_LIBREYOLO_COMMIT = "24143e52339d71570ae3207ee60ada202a731200"
+SUPPORTED_LIBREYOLO_COMMIT = G0_G1_REFERENCE_COMMIT
 REQUIRED_PYTORCH_MODEL_API = (
     "_get_input_size",
     "_preprocess",
@@ -160,7 +161,8 @@ def benchmark_model(
         fmt: Backend format: "pytorch" (default), "onnx", or "tensorrt".
         weights_dir: Directory containing user-supplied ONNX files (.onnx)
             or TensorRT engines (.engine + .engine.json sidecar).
-            Required when fmt="onnx" or fmt="tensorrt", ignored otherwise.
+            Required when fmt="onnx" or fmt="tensorrt"; optional local .pt
+            checkpoint directory for PyTorch.
         device: Device string ("auto", "cuda", "mps", "cpu").
         conf: Confidence threshold for predictions.
         iou: IoU threshold for NMS.
@@ -184,6 +186,7 @@ def benchmark_model(
             verbose,
             dataset_id=dataset_id,
             dataset_revision=dataset_revision,
+            weights_dir=weights_dir,
         )
     if fmt == "onnx":
         if weights_dir is None:
@@ -380,6 +383,7 @@ def _benchmark_pytorch(
     verbose: bool,
     dataset_id: str | None = None,
     dataset_revision: str | None = None,
+    weights_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     coco_dir = Path(coco_dir)
 
@@ -389,7 +393,7 @@ def _benchmark_pytorch(
         print(f"Benchmarking: {spec.display_name} ({spec.key}) [PyTorch]")
         print(f"{'=' * 70}")
 
-    model, _ = load_model(model_key, device=device)
+    model, _ = load_model(model_key, device=device, weights_dir=weights_dir)
     _assert_supported_pytorch_model_api(model)
     actual_device = model.device
     imgsz = model._get_input_size()
@@ -518,7 +522,7 @@ def _benchmark_pytorch(
         weights=build_weights_repro(
             weight_file=spec.weight_file,
             resolved_path=getattr(model, "model_path", None),
-            source="libreyolo-managed",
+            source="user-supplied" if weights_dir else "libreyolo-managed",
         ),
     )
     return assemble_result(

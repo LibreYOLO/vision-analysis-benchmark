@@ -78,7 +78,8 @@ def test_generate_data_yaml_uses_all_splits_and_sorted_category_ids(tmp_path):
 
 
 def test_every_campaign_family_has_a_protocol_recipe():
-    families = set(list_families()) - {"yolov9-e2e"}
+    # COCO inference registration does not promise an RF100-VL training recipe.
+    families = set(list_families()) - {"yolov9-e2e", "yolov9-p2", "tinyformer"}
     for family in families:
         recipe = rf100vl_train.load_recipe(
             rf100vl_train.recipe_path_for_family(family),

@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Optional
 
 SUPPORTED_FORMATS = ("pytorch", "onnx", "tensorrt")
+G0_G1_REFERENCE_COMMIT = "6a0ccc3a0e579948011d5a55200309c4082e61e7"
+FAMILY_ALIASES = {"yolov9": "yolo9", "yolov9-e2e": "yolo9_e2e", "yolov9-p2": "yolo9_p2"}
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,37 @@ def _register(*specs: ModelSpec) -> None:
 
 
 _register(
+    # P2 has an inference implementation but no published COCO checkpoint.
+    # A local COCO-trained checkpoint may be supplied via --weights-dir.
+    ModelSpec(
+        "yolov9p2-t", "YOLOv9-P2-T", "yolov9-p2", "t", "LibreYOLO9P2t.pt", "t", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "yolov9p2-s", "YOLOv9-P2-S", "yolov9-p2", "s", "LibreYOLO9P2s.pt", "s", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "tinyformer-s", "TinyFormer-S", "tinyformer", "s", "LibreTinyFormers.pt", "s", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "tinyformer-m", "TinyFormer-M", "tinyformer", "m", "LibreTinyFormerm.pt", "m", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "tinyformer-l", "TinyFormer-L", "tinyformer", "l", "LibreTinyFormerl.pt", "l", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "tinyformer-x", "TinyFormer-X", "tinyformer", "x", "LibreTinyFormerx.pt", "x", 640, 0.0, 0.0
+    ),
+    ModelSpec(
+        "tinyformer-xl",
+        "TinyFormer-XL",
+        "tinyformer",
+        "xl",
+        "LibreTinyFormerxl.pt",
+        "xl",
+        640,
+        0.0,
+        0.0,
+    ),
     # --- YOLOX (6 variants) ---
     ModelSpec("yolox-nano", "YOLOX-Nano", "yolox", "nano", "LibreYOLOXn.pt", "n", 416, 0.91, 1.32),
     ModelSpec("yolox-tiny", "YOLOX-Tiny", "yolox", "tiny", "LibreYOLOXt.pt", "t", 416, 5.06, 7.68),
@@ -58,7 +91,7 @@ _register(
     ModelSpec("rfdetr-n", "RF-DETR-N", "rfdetr", "n", "LibreRFDETRn.pt", "n", 384, 0.0, 0.0),
     ModelSpec("rfdetr-s", "RF-DETR-S", "rfdetr", "s", "LibreRFDETRs.pt", "s", 512, 0.0, 0.0),
     ModelSpec("rfdetr-m", "RF-DETR-M", "rfdetr", "m", "LibreRFDETRm.pt", "m", 576, 0.0, 0.0),
-    ModelSpec("rfdetr-l", "RF-DETR-L", "rfdetr", "l", "LibreRFDETRl.pt", "l", 704, 128.0, 340.0),
+    ModelSpec("rfdetr-l", "RF-DETR-L", "rfdetr", "l", "LibreRFDETRl.pt", "l", 704, 0.0, 0.0),
 )
 
 # ---------------------------------------------------------------------------
@@ -238,9 +271,51 @@ _register(
 )
 
 
-def list_models() -> list[str]:
+def list_models(groups: list[str] | None = None) -> list[str]:
     """Return sorted list of all model keys."""
+    if groups:
+        return group_models(groups)
     return sorted(MODEL_REGISTRY.keys())
+
+
+def canonical_family(spec: ModelSpec) -> str:
+    return FAMILY_ALIASES.get(spec.family, spec.family)
+
+
+def _required_group_pairs(groups: list[str]) -> set[tuple[str, str]]:
+    """Read detect sizes from the installed LibreYOLO source of truth."""
+    import importlib
+
+    from libreyolo.models.registry import families_in
+
+    families = {family for group in groups for family in families_in(group)}
+    required = set()
+    for family in families:
+        module = importlib.import_module(f"libreyolo.models.{family}.model")
+        cls = next(
+            value
+            for value in vars(module).values()
+            if isinstance(value, type) and value.__dict__.get("FAMILY") == family
+        )
+        if "detect" not in cls.SUPPORTED_TASKS:
+            continue
+        sizes = getattr(cls, "TASK_INPUT_SIZES", {}).get("detect", cls.INPUT_SIZES)
+        required.update((family, size) for size in sizes)
+    return required
+
+
+def group_models(groups: list[str]) -> list[str]:
+    """Select detect variants from the installed library, failing on catalogue drift."""
+    required = _required_group_pairs(groups)
+    by_pair = {
+        (canonical_family(spec), spec.constructor_size): key for key, spec in MODEL_REGISTRY.items()
+    }
+    missing = required - by_pair.keys()
+    if missing:
+        raise ValueError(
+            f"Harness registry lacks installed G0/G1 detection variants: {sorted(missing)}"
+        )
+    return sorted(by_pair[pair] for pair in required)
 
 
 def list_families() -> list[str]:
@@ -256,7 +331,7 @@ def get_spec(key: str) -> ModelSpec:
     return MODEL_REGISTRY[key]
 
 
-def load_model(key: str, device: str = "auto"):
+def load_model(key: str, device: str = "auto", weights_dir: str | Path | None = None):
     """Load a LibreYOLO PyTorch model by registry key.
 
     Returns the loaded model instance and its spec.
@@ -264,7 +339,31 @@ def load_model(key: str, device: str = "auto"):
     from libreyolo import LibreYOLO
 
     spec = get_spec(key)
-    model = LibreYOLO(model_path=spec.weight_file, size=spec.constructor_size, device=device)
+    weight_path = Path(weights_dir) / spec.weight_file if weights_dir else Path(spec.weight_file)
+    if weights_dir and not weight_path.is_file():
+        raise FileNotFoundError(f"Missing local checkpoint for {key}: {weight_path}")
+    if canonical_family(spec) == "yolo9_p2" and not weight_path.is_file():
+        raise FileNotFoundError(
+            f"{key} has no published COCO checkpoint. Supply COCO-trained {spec.weight_file} "
+            "via --weights-dir. VisDrone weights and random/transfer-initialized heads "
+            "are not substitutes for a COCO benchmark."
+        )
+    model = LibreYOLO(model_path=str(weight_path), size=spec.constructor_size, device=device)
+    if getattr(model, "FAMILY", None) != canonical_family(spec):
+        raise ValueError(
+            f"{key}: checkpoint belongs to {getattr(model, 'FAMILY', None)}, "
+            f"not {canonical_family(spec)}"
+        )
+    if model.task != "detect" or model.size != spec.constructor_size or model.nb_classes != 80:
+        raise ValueError(
+            f"{key}: requires a detect checkpoint of size {spec.constructor_size} "
+            "with COCO's 80 classes"
+        )
+    from libreyolo.utils.general import COCO_CLASSES
+
+    expected_names = {i: name for i, name in enumerate(COCO_CLASSES)}
+    if model.names != expected_names:
+        raise ValueError(f"{key}: checkpoint class names/order do not match COCO-80")
     return model, spec
 
 

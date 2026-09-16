@@ -6,6 +6,33 @@ The harness records the exact LibreYOLO version and commit in each emitted
 result JSON. For public submissions, validate the result JSON rather than
 assuming the local editable install points at the intended branch.
 
+## G0/G1 detection campaign
+
+The harness covers every detect size in LibreYOLO's G0/G1 registry. For the
+current 60-variant inventory, pin LibreYOLO to
+`6a0ccc3a0e579948011d5a55200309c4082e61e7`; v1.5.0 predates TinyFormer.
+
+```bash
+va-bench list --groups g0 g1
+va-bench run --groups g0 g1 --coco-dir /path/to/coco-mini500 --device cuda
+```
+
+Selection reads the installed library's groups and detect sizes, and fails
+if the harness is missing any of them. Other tasks are not selected. A model
+failure is reported, the remaining models still run, and the command exits
+nonzero so a partial sweep cannot be mistaken for a complete one.
+
+Registration is separate from checkpoint availability. YOLO9-P2 t/s have no
+published COCO checkpoints; their VisDrone preview is not a COCO replacement.
+They require locally COCO-trained `LibreYOLO9P2t.pt` / `LibreYOLO9P2s.pt` files
+via `--weights-dir`. With PyTorch this directory must contain each selected
+checkpoint; the harness rejects wrong families, sizes, tasks and COCO labels.
+No random-weight benchmark is published in place of a missing checkpoint.
+
+See [the campaign inventory](docs/g0-g1-campaign.md) for the full list, the
+58-model publicly downloadable batch, version pins and verification limits.
+New P2/TinyFormer entries cover COCO inference, not RF100-VL training recipes.
+
 ## Reproducibility
 
 Every emitted JSON carries a `repro` block so a third party can reproduce the
@@ -59,7 +86,7 @@ The registry covers 67 open LibreYOLO detection variants:
 | PicoDet | 3 | Yes | Yes |  |
 | EC / EdgeCrafter | 4 | Yes | Yes |  |
 | RTMDet | 5 | Yes | Yes |  |
-| YOLO-NAS | 3 | Yes | Yes | LibreYOLO's open retrained weights. |
+| YOLO-NAS | 3 | Yes | Yes | Deci checkpoints via the library's checksum-verified CDN path; original weight terms apply. |
 
 DAMO-YOLO is not registered.
 
