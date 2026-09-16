@@ -86,7 +86,7 @@ The registry covers 67 open LibreYOLO detection variants:
 | PicoDet | 3 | Yes | Yes |  |
 | EC / EdgeCrafter | 4 | Yes | Yes |  |
 | RTMDet | 5 | Yes | Yes |  |
-| YOLO-NAS | 3 | Yes | Yes | LibreYOLO's open retrained weights. |
+| YOLO-NAS | 3 | Yes | Yes | Deci checkpoints via the library's checksum-verified CDN path; original weight terms apply. |
 
 DAMO-YOLO is not registered.
 
