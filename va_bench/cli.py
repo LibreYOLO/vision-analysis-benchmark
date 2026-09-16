@@ -53,7 +53,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(f"Error: --weights-dir is required when --format {args.format}")
         sys.exit(1)
 
-    if args.all:
+    if getattr(args, "groups", None):
+        model_keys = list_models(groups=args.groups)
+    elif args.all:
         model_keys = list_models()
     elif args.models:
         model_keys = args.models
@@ -78,6 +80,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         "command": reconstruct_command(sys.argv[1:]),
     }
 
+    failed = []
     for key in model_keys:
         try:
             result = benchmark_model(
@@ -99,12 +102,17 @@ def cmd_run(args: argparse.Namespace) -> None:
             filepath = save_result(result, args.output_dir)
             print(f"\nSaved: {filepath}")
         except Exception as e:
+            failed.append(key)
             print(f"\nError benchmarking {key}: {e}")
             if args.debug:
                 import traceback
 
                 traceback.print_exc()
             continue
+
+    if failed:
+        print(f"\nFailed {len(failed)}/{len(model_keys)} models: {' '.join(failed)}")
+        raise SystemExit(1)
 
     print(f"\nDone. Results in {args.output_dir}/")
 
@@ -278,7 +286,9 @@ def cmd_rf100vl_train(args: argparse.Namespace) -> None:
 
 def cmd_list(args: argparse.Namespace) -> None:
     """List available models."""
-    from .models import MODEL_REGISTRY
+    from .models import MODEL_REGISTRY, list_models
+
+    keys = list_models(groups=getattr(args, "groups", None))
 
     print(
         f"\n{'Key':<16} {'Display Name':<16} {'Family':<10} {'Params(M)':<10} "
@@ -286,7 +296,7 @@ def cmd_list(args: argparse.Namespace) -> None:
     )
     print("-" * 90)
 
-    for key in sorted(MODEL_REGISTRY.keys()):
+    for key in keys:
         s = MODEL_REGISTRY[key]
         params = f"{s.paper_params_m:.1f}" if s.paper_params_m > 0 else "?"
         flops = f"{s.paper_flops_g:.1f}" if s.paper_flops_g > 0 else "?"
@@ -295,7 +305,7 @@ def cmd_list(args: argparse.Namespace) -> None:
             f"{flops:<8} {s.input_size:<6} {s.weight_file}"
         )
 
-    print(f"\n{len(MODEL_REGISTRY)} models available")
+    print(f"\n{len(keys)} model variants registered (checkpoint availability is separate)")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -307,10 +317,17 @@ def main(argv: list[str] | None = None) -> None:
 
     # --- run ---
     run_parser = subparsers.add_parser("run", help="Benchmark models on COCO val2017")
-    run_parser.add_argument(
+    selection = run_parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument(
         "--models", nargs="+", help="Model keys to benchmark (e.g. yolov9t yolox-s)"
     )
-    run_parser.add_argument("--all", action="store_true", help="Benchmark all models")
+    selection.add_argument("--all", action="store_true", help="Benchmark all registered models")
+    selection.add_argument(
+        "--groups",
+        nargs="+",
+        choices=["g0", "g1"],
+        help="All detect sizes in the installed LibreYOLO coverage groups",
+    )
     run_parser.add_argument(
         "--coco-dir",
         type=str,
@@ -334,7 +351,7 @@ def main(argv: list[str] | None = None) -> None:
         "--weights-dir",
         type=str,
         default=None,
-        help="Directory with user-supplied .onnx / .engine weights "
+        help="Directory with user-supplied .pt / .onnx / .engine weights "
         "(required with --format onnx or --format tensorrt)",
     )
     run_parser.add_argument(
@@ -626,7 +643,8 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     # --- list ---
-    subparsers.add_parser("list", help="List available models and specs")
+    list_parser = subparsers.add_parser("list", help="List available models and specs")
+    list_parser.add_argument("--groups", nargs="+", choices=["g0", "g1"])
 
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(_protect_leading_dash_dataset_names(raw_argv))
