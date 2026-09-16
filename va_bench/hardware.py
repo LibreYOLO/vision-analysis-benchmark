@@ -28,12 +28,15 @@ def get_gpu_info() -> dict[str, Any]:
             text=True,
             check=True,
         )
-        parts = result.stdout.strip().split(", ")
+        first_line = next(iter(result.stdout.splitlines()), "")
+        parts = [part.strip() for part in first_line.split(",")]
         if len(parts) >= 3:
             gpu_name = parts[0]
             mem_str = parts[1]
             if "MiB" in mem_str or "MB" in mem_str:
                 memory_gb = float(mem_str.split()[0]) / 1024
+            else:
+                memory_gb = None
             driver = parts[2]
     except (FileNotFoundError, subprocess.CalledProcessError):
         # Check for Raspberry Pi
@@ -52,7 +55,7 @@ def get_gpu_info() -> dict[str, Any]:
 
     return {
         "gpu": gpu_name,
-        "gpu_memory_gb": round(memory_gb, 1),
+        "gpu_memory_gb": round(memory_gb, 1) if memory_gb is not None else None,
         "driver_version": driver,
         "cuda_version": cuda_version,
     }
@@ -78,9 +81,20 @@ def get_cpu_info() -> tuple[str, int]:
         if platform.system() == "Linux":
             with open("/proc/cpuinfo") as f:
                 lines = f.readlines()
-            model_lines = [line for line in lines if "model name" in line]
-            cpu_model = model_lines[0].split(":")[1].strip() if model_lines else "Unknown"
-            cpu_cores = len([line for line in lines if "processor" in line])
+            model_lines = [
+                line for line in lines if line.split(":")[0].strip() in {"model name", "Hardware"}
+            ]
+            cpu_model = model_lines[0].split(":", 1)[1].strip() if model_lines else "Unknown"
+            if cpu_model == "Unknown":
+                try:
+                    cpu_model = Path("/proc/device-tree/model").read_text().strip("\x00\n ")
+                except OSError:
+                    cpu_model = platform.processor() or platform.machine() or "Unknown"
+            cpu_cores = (
+                sum(line.split(":")[0].strip() == "processor" for line in lines)
+                or os.cpu_count()
+                or 0
+            )
         elif platform.system() == "Darwin":
             cpu_model = _get_mac_chip()
             cpu_cores = os.cpu_count() or 0
@@ -252,6 +266,16 @@ def collect_all() -> dict[str, Any]:
     ram_gb = get_system_memory_gb()
     software = get_software_info()
 
+    # GB10 shares system memory between CPU and GPU. Do not report that pool
+    # as dedicated VRAM or turn nvidia-smi's N/A into a measured zero.
+    # Capacity here is OS-visible GiB, not the manufacturer's installed GB.
+    memory_info = {}
+    if "gb10" in gpu_info["gpu"].lower() or "dgx spark" in gpu_info["gpu"].lower():
+        gpu_info["gpu_memory_gb"] = None
+        memory_info = {"memory_type": "unified", "unified_memory_gb": ram_gb or None}
+        if cpu_model in {"Unknown", "aarch64", "arm64"}:
+            cpu_model = "NVIDIA GB10 Arm CPU"
+
     return {
         "hardware": {
             "gpu": gpu_info["gpu"],
@@ -261,6 +285,7 @@ def collect_all() -> dict[str, Any]:
             "cpu": cpu_model,
             "cpu_cores": cpu_cores,
             "ram_gb": ram_gb,
+            **memory_info,
         },
         "software": software,
     }
