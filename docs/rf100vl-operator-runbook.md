@@ -311,6 +311,8 @@ keep the campaign history clean.
 
 ## 7. The real run (one command, then hours)
 
+One `--weights-root` per model. Per-dataset `stats.json` files are not namespaced by model, so the harness refuses a root that another model's campaign already uses.
+
 Still inside tmux:
 
 ```bash

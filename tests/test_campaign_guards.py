@@ -86,3 +86,34 @@ def _write_stats(root, name, *, valid):
     d = root / name
     d.mkdir(parents=True, exist_ok=True)
     (d / "stats.json").write_text(json.dumps({"valid_mAP50_95": valid}))
+
+
+class TestOneModelPerWeightsRoot:
+    """Two models on one weights root overwrote each other's stats.json (2026-10-31)."""
+
+    def test_the_same_model_can_reuse_its_root(self, tmp_path):
+        from va_bench.rf100vl_train import claim_weights_root
+
+        claim_weights_root(tmp_path, "yolov9t")
+        claim_weights_root(tmp_path, "yolov9t")
+        assert (tmp_path / ".campaign-model").read_text().strip() == "yolov9t"
+
+    def test_a_second_model_is_refused(self, tmp_path):
+        import pytest
+
+        from va_bench.rf100vl_train import claim_weights_root
+
+        claim_weights_root(tmp_path, "yolov9t")
+        with pytest.raises(ValueError, match="give rfdetr-n its own --weights-root"):
+            claim_weights_root(tmp_path, "rfdetr-n")
+
+    def test_an_unmarked_root_with_other_results_is_refused(self, tmp_path):
+        import pytest
+
+        from va_bench.rf100vl_train import claim_weights_root
+
+        (tmp_path / "weeds4").mkdir()
+        (tmp_path / "weeds4" / "stats.json").write_text(json.dumps({"model_key": "yolov9t"}))
+        with pytest.raises(ValueError, match="holds yolov9t results"):
+            claim_weights_root(tmp_path, "rfdetr-n")
+        claim_weights_root(tmp_path, "yolov9t")

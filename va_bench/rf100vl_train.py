@@ -786,6 +786,13 @@ def run_dataset_worker(config_path: str | Path) -> int:
             "harness": harness_git_info(),
         }
         stats_path = target_checkpoint.parent / "stats.json"
+        if stats_path.is_file():
+            previous = load_json(stats_path).get("model_key")
+            if previous and previous != stats.get("model_key"):
+                raise RuntimeError(
+                    f"{stats_path} belongs to {previous}; refusing to overwrite it "
+                    f"with {stats.get('model_key')} (one --weights-root per model)"
+                )
         atomic_write_json(stats_path, stats)
         # Only after stats and the checkpoint are safely written: reclaiming
         # first would risk deleting a resume point for a dataset that then
@@ -1457,6 +1464,48 @@ def _run_attempt(
     return worker_result, status, status_path
 
 
+ROOT_OWNER_FILE = ".campaign-model"
+
+
+def claim_weights_root(weights_root: Path, model_key: str) -> None:
+    """Refuse a weights root that another model's campaign already uses.
+
+    Per-dataset outputs (``<root>/<dataset>/stats.json``) are not namespaced by
+    model, so two campaigns on one root overwrite each other's stats, and the
+    evaluator then reads the other model's recipe hash and selection score.
+    Seen 2026-10-31: yolov9t and rfdetr-n on one root lost two yolov9t stats
+    files without any error.
+    """
+    weights_root.mkdir(parents=True, exist_ok=True)
+    marker = weights_root / ROOT_OWNER_FILE
+    hint = f"give {model_key} its own --weights-root"
+    if marker.exists():
+        owner = marker.read_text(encoding="utf-8").strip()
+        if owner != model_key:
+            raise ValueError(
+                f"--weights-root {weights_root} holds a {owner} campaign; {hint}"
+            )
+        return
+    for stats_path in sorted(weights_root.glob("*/stats.json")):
+        try:
+            owner = load_json(stats_path).get("model_key")
+        except (OSError, ValueError):
+            continue
+        if owner and owner != model_key:
+            raise ValueError(
+                f"--weights-root {weights_root} holds {owner} results "
+                f"({stats_path.parent.name}); {hint}"
+            )
+    try:
+        fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        # Another campaign claimed the root between the check and now.
+        claim_weights_root(weights_root, model_key)
+        return
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(model_key + "\n")
+
+
 def orchestrate_training(
     *,
     model_key: str,
@@ -1561,6 +1610,7 @@ def orchestrate_training(
 
     runs_root = Path(runs_root or weights_root / ".runs" / model_key).resolve()
     state_root = Path(state_root or weights_root / ".state" / model_key).resolve()
+    claim_weights_root(weights_root, model_key)
     state_root.mkdir(parents=True, exist_ok=True)
     failures_path = state_root / "failures.json"
     rerun_path = state_root / "rerun.json"
